@@ -1,58 +1,159 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import RoomView from './RoomView.vue';
-import { useUserStore } from '../stores/user.js';
 
-const signalingMock = {
-  socket: { value: { id: 'self-1' } },
-  connected: { value: false },
-  joined: { value: false },
-  roomId: { value: null },
-  selfSocketId: { value: 'self-1' },
-  peers: { value: [] },
-  error: { value: null },
-  connect: vi.fn(),
-  disconnect: vi.fn(),
-  joinRoom: vi.fn().mockResolvedValue({ socketIds: [], members: [] }),
-  emitSignal: vi.fn(),
-  onUserJoined: vi.fn(),
-  onUserLeft: vi.fn(),
-  onSignal: vi.fn(),
-  onException: vi.fn(),
-  offAll: vi.fn(),
-};
-
-vi.mock('../composables/useSignaling.js', () => ({
-  useSignaling: () => signalingMock,
-}));
-
-const rtcMock = {
-  setLocalStream: vi.fn(),
-  createOffer: vi.fn(),
-  handleOffer: vi.fn(),
-  handleAnswer: vi.fn(),
-  addIceCandidate: vi.fn(),
-  closePeer: vi.fn(),
-  closeAll: vi.fn(),
-  remoteStreams: { value: new Map() },
-  peers: { value: new Map() },
-};
-
-vi.mock('../composables/useWebRTC.js', () => ({
-  useMediaDevices: () => ({
+const mocks = vi.hoisted(() => {
+  const signaling = {
+    transport: 'livekit',
+    socket: { value: { id: 'self-1' } },
+    connected: { value: false },
+    joined: { value: false },
+    roomId: { value: null },
+    selfSocketId: { value: 'self-1' },
+    peers: { value: [] },
+    error: { value: null },
+    callState: { value: 'idle' },
+    activeCallId: { value: null },
+    sfuRoom: { value: null },
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    joinRoom: vi.fn().mockResolvedValue({ socketIds: [], members: [] }),
+    emitSignal: vi.fn(),
+    emitSfuJoinRoom: vi.fn(),
+    emitSfuPublishTrack: vi.fn(),
+    emitCallInvite: vi.fn(),
+    onUserJoined: vi.fn(),
+    onUserLeft: vi.fn(),
+    onSignal: vi.fn(),
+    onException: vi.fn(),
+    onCallInvite: vi.fn(),
+    onCallRinging: vi.fn(),
+    onCallAccept: vi.fn(),
+    onCallHangup: vi.fn(),
+    onPeerJoined: vi.fn(),
+    onPeerLeft: vi.fn(),
+    onSfuJoinRoom: vi.fn(),
+    onSfuPublishTrack: vi.fn(),
+    onSfuSubscribeTrack: vi.fn(),
+    offAll: vi.fn(),
+  };
+  const livekit = {
+    room: { value: null },
+    state: { value: 'idle' },
+    remoteParticipants: { value: [] },
+    cameraEnabled: { value: true },
+    microphoneEnabled: { value: true },
+    error: { value: null },
+    connect: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
+    publishTrack: vi.fn().mockResolvedValue({ sid: 'pub-1' }),
+    unpublishTrack: vi.fn().mockResolvedValue(undefined),
+    setCameraEnabled: vi.fn().mockResolvedValue(undefined),
+    setMicrophoneEnabled: vi.fn().mockResolvedValue(undefined),
+  };
+  const rtc = {
+    setLocalStream: vi.fn(),
+    createOffer: vi.fn(),
+    handleOffer: vi.fn(),
+    handleAnswer: vi.fn(),
+    addIceCandidate: vi.fn(),
+    closePeer: vi.fn(),
+    closeAll: vi.fn(),
+    remoteStreams: { value: new Map() },
+    peers: { value: new Map() },
+  };
+  const media = {
     stream: { value: null },
     cameraOn: { value: false },
     microphoneOn: { value: false },
     error: { value: null },
-    start: vi.fn().mockResolvedValue({ getTracks: () => [] }),
+    start: vi.fn(),
     stop: vi.fn(),
-    toggleCamera: vi.fn(),
-    toggleMicrophone: vi.fn(),
-  }),
-  useWebRTC: () => rtcMock,
+    toggleCamera: vi.fn().mockReturnValue(false),
+    toggleMicrophone: vi.fn().mockReturnValue(false),
+  };
+  const auth = {
+    devLogin: vi.fn().mockResolvedValue({ token: 'jwt-1', userId: 'u1', displayName: 'Alice' }),
+    getToken: vi.fn().mockReturnValue('jwt-1'),
+    clearToken: vi.fn(),
+  };
+  const calls = {
+    getIceServers: vi.fn().mockResolvedValue([{ urls: 'stun:stun.l.google.com:19302' }]),
+    getSfuToken: vi.fn().mockResolvedValue({
+      token: 'sfu.jwt',
+      url: 'wss://lk.test',
+      identity: 'guest-x',
+      roomName: 'ABC-DEF-GHI',
+      mocked: true,
+    }),
+    createCall: vi.fn(),
+  };
+  return { signaling, livekit, rtc, media, auth, calls };
+});
+
+vi.mock('../composables/useSignaling.js', () => ({
+  useSignaling: () => mocks.signaling,
+  SIGNALING_EVENTS: {
+    CallInvite: 'call:invite',
+    CallRinging: 'call:ringing',
+    CallAccept: 'call:accept',
+    PeerJoined: 'peer:joined',
+    PeerLeft: 'peer:left',
+    SfuJoinRoom: 'sfu:join-room',
+    SfuPublishTrack: 'sfu:publish-track',
+    SfuSubscribeTrack: 'sfu:subscribe-track',
+  },
 }));
+
+vi.mock('../composables/useLiveKitRoom.js', () => ({
+  useLiveKitRoom: () => mocks.livekit,
+  findPublication: vi.fn().mockReturnValue(null),
+}));
+
+vi.mock('../composables/useWebRTC.js', () => ({
+  useMediaDevices: () => mocks.media,
+  useWebRTC: () => mocks.rtc,
+}));
+
+vi.mock('../api/auth.js', () => ({
+  devLogin: mocks.auth.devLogin,
+  getToken: mocks.auth.getToken,
+  clearToken: mocks.auth.clearToken,
+}));
+
+vi.mock('../api/calls.js', () => ({
+  getIceServers: mocks.calls.getIceServers,
+  getSfuToken: mocks.calls.getSfuToken,
+  createCall: mocks.calls.createCall,
+  getCall: vi.fn(),
+}));
+
+vi.mock('livekit-client', () => ({
+  createLocalTracks: vi.fn().mockResolvedValue([
+    { kind: 'video', sid: 'LV-1', attach: vi.fn(), detach: vi.fn(), stop: vi.fn() },
+    { kind: 'audio', sid: 'LA-1', attach: vi.fn(), detach: vi.fn(), stop: vi.fn() },
+  ]),
+  Track: { Kind: { Video: 'video', Audio: 'audio' } },
+  RoomEvent: {
+    Connected: 'connected',
+    Disconnected: 'disconnected',
+    ParticipantConnected: 'participantConnected',
+  },
+  Room: vi.fn(),
+}));
+
+function fakeStream() {
+  return {
+    getTracks: () => [
+      { kind: 'video', enabled: true, getSettings: () => ({ deviceId: 'v1' }) },
+      { kind: 'audio', enabled: true, getSettings: () => ({ deviceId: 'a1' }) },
+    ],
+    getVideoTracks: () => [{ kind: 'video' }],
+    getAudioTracks: () => [{ kind: 'audio' }],
+  };
+}
 
 function makeRouter() {
   return createRouter({
@@ -64,79 +165,101 @@ function makeRouter() {
   });
 }
 
-describe('RoomView', () => {
+async function mountRoom(propsOverride = {}) {
+  const router = makeRouter();
+  router.push(`/room/${propsOverride.roomId ?? 'ABC-DEF-GHI'}`);
+  await router.isReady();
+  const wrapper = mount(RoomView, {
+    global: { plugins: [router] },
+    props: { roomId: 'ABC-DEF-GHI', ...propsOverride },
+  });
+  // Bootstrap fires a chain of awaits (media.start → getIceServers/getSfuToken
+  // → livekit.connect → createLocalTracks → signaling.joinRoom). Flush several
+  // micro-tasks so the chain settles.
+  for (let i = 0; i < 5; i += 1) {
+    await flushPromises();
+  }
+  return { wrapper, router };
+}
+
+describe('RoomView (LiveKit default transport)', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
-    signalingMock.peers.value = [];
-    signalingMock.selfSocketId.value = 'self-1';
-    signalingMock.connected.value = false;
-    signalingMock.joined.value = false;
-    signalingMock.joinRoom.mockClear().mockResolvedValue({ socketIds: [], members: [] });
-    signalingMock.onUserJoined.mockClear();
-    signalingMock.onUserLeft.mockClear();
-    signalingMock.onSignal.mockClear();
-    signalingMock.disconnect.mockClear();
-    rtcMock.closeAll.mockClear();
+    // jsdom's HTMLMediaElement.play raises "Not implemented". Override it with
+    // a no-op stub so VideoTile's render path stays quiet.
+    HTMLMediaElement.prototype.play = function play() {
+      return Promise.resolve();
+    };
+    for (const m of [mocks.calls, mocks.auth, mocks.livekit, mocks.media, mocks.rtc, mocks.signaling]) {
+      for (const v of Object.values(m)) {
+        if (v && typeof v === 'object' && typeof v.mockClear === 'function') {
+          v.mockClear();
+        } else if (typeof v === 'function' && v.mockClear) {
+          v.mockClear();
+        }
+      }
+    }
+    mocks.livekit.connect.mockResolvedValue(undefined);
+    mocks.livekit.publishTrack.mockResolvedValue({ sid: 'pub-1' });
+    mocks.livekit.disconnect.mockResolvedValue(undefined);
+    mocks.livekit.state.value = 'idle';
+    mocks.livekit.remoteParticipants.value = [];
+    mocks.media.start.mockResolvedValue(fakeStream());
+    mocks.signaling.joinRoom.mockResolvedValue({ socketIds: [], members: [] });
+    mocks.signaling.selfSocketId.value = 'self-1';
+    mocks.auth.getToken.mockReturnValue('jwt-1');
   });
 
-  it('mounts and renders the room shell', async () => {
-    const router = makeRouter();
-    router.push('/room/ABC-DEF-GHI');
-    await router.isReady();
-    const wrapper = mount(RoomView, {
-      global: { plugins: [router] },
-      props: { roomId: 'ABC-DEF-GHI' },
-    });
+  it('renders the room shell and the transport toggle', async () => {
+    const { wrapper } = await mountRoom();
     expect(wrapper.find('[data-testid="room-view"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="media-controls"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="empty-state"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="transport-toggle"]').exists()).toBe(true);
+    // The local video tile should appear once bootstrap finishes.
+    expect(wrapper.find('video').exists()).toBe(true);
   });
 
-  it('joins the signaling room on mount', async () => {
-    const router = makeRouter();
-    router.push('/room/ABC-DEF-GHI');
-    await router.isReady();
-    const user = useUserStore();
-    user.setDisplayName('Alice');
-
-    mount(RoomView, {
-      global: { plugins: [router] },
-      props: { roomId: 'ABC-DEF-GHI' },
+  it('on mount: fetches ICE servers and SFU token, connects LiveKit, publishes tracks', async () => {
+    const { wrapper } = await mountRoom();
+    expect(mocks.calls.getIceServers).toHaveBeenCalled();
+    expect(mocks.calls.getSfuToken).toHaveBeenCalledWith('ABC-DEF-GHI');
+    expect(mocks.livekit.connect).toHaveBeenCalledWith({
+      url: 'wss://lk.test',
+      token: 'sfu.jwt',
     });
-
-    await new Promise((r) => setTimeout(r, 0));
-    expect(signalingMock.joinRoom).toHaveBeenCalledWith('ABC-DEF-GHI', user.userId);
+    expect(mocks.livekit.publishTrack).toHaveBeenCalled();
+    expect(mocks.signaling.joinRoom).toHaveBeenCalledWith('ABC-DEF-GHI', expect.any(String));
+    expect(mocks.signaling.emitSfuJoinRoom).toHaveBeenCalledWith(
+      expect.objectContaining({ roomId: 'ABC-DEF-GHI', mocked: true }),
+    );
+    expect(wrapper.find('[data-testid="room-error"]').exists()).toBe(false);
   });
 
-  it('registers signal/peer listeners', () => {
-    const router = makeRouter();
-    router.push('/room/ABC-DEF-GHI');
-    return router.isReady().then(() => {
-      mount(RoomView, {
-        global: { plugins: [router] },
-        props: { roomId: 'ABC-DEF-GHI' },
-      });
-      expect(signalingMock.onUserJoined).toHaveBeenCalled();
-      expect(signalingMock.onUserLeft).toHaveBeenCalled();
-      expect(signalingMock.onSignal).toHaveBeenCalled();
-    });
-  });
-
-  it('leave() closes the rtc peers and navigates home', async () => {
-    const router = makeRouter();
-    router.push('/room/ABC-DEF-GHI');
-    await router.isReady();
+  it('leave() disconnects the LiveKit room, the socket, and navigates home', async () => {
+    const { wrapper, router } = await mountRoom();
     const pushSpy = vi.spyOn(router, 'push');
-
-    const wrapper = mount(RoomView, {
-      global: { plugins: [router] },
-      props: { roomId: 'ABC-DEF-GHI' },
-    });
-
     await wrapper.find('[data-testid="leave-room"]').trigger('click');
-
-    expect(rtcMock.closeAll).toHaveBeenCalled();
-    expect(signalingMock.disconnect).toHaveBeenCalled();
+    expect(mocks.livekit.disconnect).toHaveBeenCalled();
+    expect(mocks.signaling.disconnect).toHaveBeenCalled();
+    expect(mocks.rtc.closeAll).toHaveBeenCalled();
+    expect(mocks.media.stop).toHaveBeenCalled();
     expect(pushSpy).toHaveBeenCalledWith({ name: 'home' });
+  });
+
+  it('switching the transport to p2p tears down LiveKit and joins the legacy room', async () => {
+    const { wrapper } = await mountRoom();
+    expect(mocks.livekit.connect).toHaveBeenCalledTimes(1);
+    const select = wrapper.find('[data-testid="transport-select"]');
+    await select.setValue('p2p');
+    await flushPromises();
+    expect(mocks.livekit.disconnect).toHaveBeenCalled();
+    expect(mocks.rtc.setLocalStream).toHaveBeenCalled();
+    expect(mocks.signaling.joinRoom).toHaveBeenCalled();
+  });
+
+  it('surfaces an error message when LiveKit connect fails', async () => {
+    mocks.livekit.connect.mockRejectedValueOnce(new Error('sfu-down'));
+    const { wrapper } = await mountRoom();
+    expect(wrapper.find('[data-testid="room-error"]').text()).toContain('sfu-down');
   });
 });
