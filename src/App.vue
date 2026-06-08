@@ -1,18 +1,6 @@
 <template>
-  <Meeting></Meeting>
+  <router-view />
 </template>
 
-
-<script>
-import Main from "./components/Main.vue";
-import Meeting from "./components/Meeting.vue";
-export default {
-  components:{
-    Main,Meeting
-  }
-  
-}
+<script setup>
 </script>
-
-<style>
-</style>
