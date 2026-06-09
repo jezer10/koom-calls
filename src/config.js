@@ -3,6 +3,12 @@ export const APP_CONFIG = {
     import.meta.env.VITE_SIGNALING_URL ?? 'http://localhost:8080',
   signalingNamespace:
     import.meta.env.VITE_SIGNALING_NAMESPACE ?? '/signaling',
+  apiBaseUrl:
+    import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api',
+  sfuUrl:
+    import.meta.env.VITE_SFU_URL ?? 'ws://localhost:7880',
+  devAuthEnabled:
+    (import.meta.env.VITE_DEV_AUTH_ENABLED ?? 'true') === 'true',
   peerConfig: {
     host: import.meta.env.VITE_PEER_HOST ?? 'localhost',
     port: Number(import.meta.env.VITE_PEER_PORT ?? 9000),

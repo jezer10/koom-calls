@@ -1,31 +1,119 @@
 import { getCurrentInstance, onBeforeUnmount, ref, shallowRef } from 'vue';
-import { getSocket } from '../api/socket.js';
+import { getSocket, resetSocket } from '../api/socket.js';
 
-function tryOnUnmount(fn) {
-  const inst = getCurrentInstance();
-  if (inst) onBeforeUnmount(fn);
-}
+/**
+ * The set of socket event names used by the M2 control plane. Kept as a
+ * frozen object so consumers can reference named constants instead of
+ * typing strings.
+ */
+export const SIGNALING_EVENTS = Object.freeze({
+  // Legacy P2P mesh (transport = 'p2p')
+  Join: 'join',
+  ExistingUsers: 'existing-users',
+  UserJoined: 'user-joined',
+  UserLeft: 'user-left',
+  Signal: 'signal',
+  Offer: 'offer',
+  Answer: 'answer',
+  IceCandidate: 'ice-candidate',
+  Exception: 'exception',
+  // M2 control plane (transport = 'livekit')
+  CallInvite: 'call:invite',
+  CallRinging: 'call:ringing',
+  CallAccept: 'call:accept',
+  CallReject: 'call:reject',
+  CallHangup: 'call:hangup',
+  PeerJoined: 'peer:joined',
+  PeerLeft: 'peer:left',
+  SfuJoinRoom: 'sfu:join-room',
+  SfuPublishTrack: 'sfu:publish-track',
+  SfuSubscribeTrack: 'sfu:subscribe-track',
+});
 
-export function useSignaling() {
-  const socketRef = shallowRef(getSocket());
+/**
+ * Build the useSignaling composable.
+ *
+ * The legacy mesh `offer/answer/ice-candidate` flow is preserved and used
+ * only when the caller requests `transport === 'p2p'`. The M2 events
+ * (`call:invite`, `peer:joined`, `sfu:join-room`, …) are wired in as
+ * additional no-op-on-registration listeners that simply populate
+ * reactive state for the rest of the SPA to consume.
+ *
+ * @param {object} [options]
+ * @param {'livekit'|'p2p'} [options.transport='livekit']
+ * @param {string|null} [options.token=null] - JWT for namespace handshake
+ * @returns {object}
+ */
+export function useSignaling(options = {}) {
+  const transport = options.transport ?? 'livekit';
+  const token = options.token ?? null;
+  const socketRef = shallowRef(getSocket({ token }));
   const connected = ref(false);
   const joined = ref(false);
   const roomId = ref(null);
   const selfSocketId = ref(null);
   const peers = ref([]);
   const error = ref(null);
+  const callState = ref('idle');
+  const activeCallId = ref(null);
+  const sfuRoom = ref(null);
 
   function attach() {
     const s = socketRef.value;
     s.on('connect', () => {
       connected.value = true;
+      selfSocketId.value = s.id ?? null;
     });
     s.on('disconnect', () => {
       connected.value = false;
       joined.value = false;
     });
     s.on('connect_error', (err) => {
-      error.value = err.message;
+      error.value = err?.message ?? 'connect_error';
+    });
+    s.on(SIGNALING_EVENTS.UserJoined, (payload) => {
+      if (!payload) return;
+      peers.value = [
+        ...peers.value,
+        { socketId: payload.socketId, userId: payload.userId },
+      ];
+    });
+    s.on(SIGNALING_EVENTS.UserLeft, (payload) => {
+      if (!payload?.socketId) return;
+      peers.value = peers.value.filter((p) => p.socketId !== payload.socketId);
+    });
+    s.on(SIGNALING_EVENTS.PeerJoined, (payload) => {
+      if (!payload) return;
+      const id = payload.userId ?? payload.identity ?? payload.socketId;
+      if (!id) return;
+      if (!peers.value.find((p) => p.userId === id || p.socketId === id)) {
+        peers.value = [...peers.value, { socketId: id, userId: id }];
+      }
+    });
+    s.on(SIGNALING_EVENTS.PeerLeft, (payload) => {
+      const id = payload?.userId ?? payload?.identity ?? payload?.socketId;
+      if (!id) return;
+      peers.value = peers.value.filter(
+        (p) => p.userId !== id && p.socketId !== id,
+      );
+    });
+    s.on(SIGNALING_EVENTS.CallRinging, (payload) => {
+      if (payload?.callId) activeCallId.value = payload.callId;
+      callState.value = 'ringing';
+    });
+    s.on(SIGNALING_EVENTS.CallAccept, (payload) => {
+      if (payload?.callId) activeCallId.value = payload.callId;
+      callState.value = 'accepted';
+    });
+    s.on(SIGNALING_EVENTS.CallReject, () => {
+      callState.value = 'rejected';
+    });
+    s.on(SIGNALING_EVENTS.CallHangup, () => {
+      callState.value = 'ended';
+      activeCallId.value = null;
+    });
+    s.on(SIGNALING_EVENTS.SfuJoinRoom, (payload) => {
+      if (payload?.room) sfuRoom.value = payload.room;
     });
   }
 
@@ -34,19 +122,33 @@ export function useSignaling() {
     s.off('connect');
     s.off('disconnect');
     s.off('connect_error');
+    for (const evt of Object.values(SIGNALING_EVENTS)) {
+      s.off(evt);
+    }
   }
 
   function connect() {
-    if (socketRef.value.connected) return;
-    socketRef.value.connect();
+    const s = socketRef.value;
+    if (s.connected) return;
+    s.connect();
   }
 
   function disconnect() {
     socketRef.value.disconnect();
     joined.value = false;
     peers.value = [];
+    callState.value = 'idle';
+    activeCallId.value = null;
+    sfuRoom.value = null;
   }
 
+  /**
+   * Join a room on the control plane.
+   *
+   * @param {string} targetRoomId
+   * @param {string} userId
+   * @returns {Promise<object>}
+   */
   function joinRoom(targetRoomId, userId) {
     if (!targetRoomId || !userId) {
       error.value = 'roomId and userId are required';
@@ -86,42 +188,75 @@ export function useSignaling() {
   function onUserJoined(handler) {
     socketRef.value.on('user-joined', handler);
   }
-
   function onUserLeft(handler) {
     socketRef.value.on('user-left', handler);
   }
-
   function onSignal(handler) {
     socketRef.value.on('signal', handler);
   }
-
   function onException(handler) {
     socketRef.value.on('exception', handler);
   }
-
+  function onCallInvite(handler) {
+    socketRef.value.on(SIGNALING_EVENTS.CallInvite, handler);
+  }
+  function onCallRinging(handler) {
+    socketRef.value.on(SIGNALING_EVENTS.CallRinging, handler);
+  }
+  function onCallAccept(handler) {
+    socketRef.value.on(SIGNALING_EVENTS.CallAccept, handler);
+  }
+  function onCallHangup(handler) {
+    socketRef.value.on(SIGNALING_EVENTS.CallHangup, handler);
+  }
+  function onPeerJoined(handler) {
+    socketRef.value.on(SIGNALING_EVENTS.PeerJoined, handler);
+  }
+  function onPeerLeft(handler) {
+    socketRef.value.on(SIGNALING_EVENTS.PeerLeft, handler);
+  }
+  function onSfuJoinRoom(handler) {
+    socketRef.value.on(SIGNALING_EVENTS.SfuJoinRoom, handler);
+  }
+  function onSfuPublishTrack(handler) {
+    socketRef.value.on(SIGNALING_EVENTS.SfuPublishTrack, handler);
+  }
+  function onSfuSubscribeTrack(handler) {
+    socketRef.value.on(SIGNALING_EVENTS.SfuSubscribeTrack, handler);
+  }
   function offAll() {
     const s = socketRef.value;
     s.off('user-joined');
     s.off('user-left');
     s.off('signal');
     s.off('exception');
+    for (const evt of Object.values(SIGNALING_EVENTS)) {
+      s.off(evt);
+    }
+  }
+
+  function emitSfuJoinRoom(payload) {
+    socketRef.value.emit(SIGNALING_EVENTS.SfuJoinRoom, payload);
+  }
+  function emitSfuPublishTrack(payload) {
+    socketRef.value.emit(SIGNALING_EVENTS.SfuPublishTrack, payload);
+  }
+  function emitCallInvite(payload) {
+    socketRef.value.emit(SIGNALING_EVENTS.CallInvite, payload);
   }
 
   attach();
 
-  onBeforeUnmount(() => {
-    offAll();
-    detach();
-    disconnect();
-  });
-
-  tryOnUnmount(() => {
-    offAll();
-    detach();
-    disconnect();
-  });
+  if (getCurrentInstance()) {
+    onBeforeUnmount(() => {
+      offAll();
+      detach();
+      disconnect();
+    });
+  }
 
   return {
+    transport,
     socket: socketRef,
     connected,
     joined,
@@ -129,6 +264,9 @@ export function useSignaling() {
     selfSocketId,
     peers,
     error,
+    callState,
+    activeCallId,
+    sfuRoom,
     connect,
     disconnect,
     joinRoom,
@@ -137,6 +275,20 @@ export function useSignaling() {
     onUserLeft,
     onSignal,
     onException,
+    onCallInvite,
+    onCallRinging,
+    onCallAccept,
+    onCallHangup,
+    onPeerJoined,
+    onPeerLeft,
+    onSfuJoinRoom,
+    onSfuPublishTrack,
+    onSfuSubscribeTrack,
     offAll,
+    emitSfuJoinRoom,
+    emitSfuPublishTrack,
+    emitCallInvite,
   };
 }
+
+export { resetSocket };
