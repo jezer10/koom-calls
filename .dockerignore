@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.gitignore
+Dockerfile
+README.md
+eslint.config.js
+*.log
+.DS_Store
+.vscode
+coverage
+.vitest-cache
