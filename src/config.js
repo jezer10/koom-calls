@@ -9,12 +9,6 @@ export const APP_CONFIG = {
     import.meta.env.VITE_SFU_URL ?? 'ws://localhost:7880',
   devAuthEnabled:
     (import.meta.env.VITE_DEV_AUTH_ENABLED ?? 'true') === 'true',
-  peerConfig: {
-    host: import.meta.env.VITE_PEER_HOST ?? 'localhost',
-    port: Number(import.meta.env.VITE_PEER_PORT ?? 9000),
-    path: import.meta.env.VITE_PEER_PATH ?? '/',
-    key: import.meta.env.VITE_PEER_KEY ?? 'peerjs',
-  },
   iceServers: import.meta.env.VITE_ICE_SERVERS
     ? import.meta.env.VITE_ICE_SERVERS.split(',').map((s) => {
         const [url, ...rest] = s.trim().split('|');
