@@ -1,12 +1,17 @@
 # syntax=docker/dockerfile:1.7
 
 ARG NODE_VERSION=22-alpine
+ARG PNPM_VERSION=10.34.1
 
 FROM node:${NODE_VERSION} AS build
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# Corepack ships with Node 22+ and pins the pnpm version declared in
+# package.json (packageManager), so this is reproducible.
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 
@@ -18,7 +23,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
     VITE_SFU_URL=${VITE_SFU_URL} \
     VITE_DEV_AUTH_ENABLED=${VITE_DEV_AUTH_ENABLED}
 
-RUN npm run build
+RUN pnpm run build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
