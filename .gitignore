@@ -6,3 +6,7 @@ dist-ssr
 *.vue.js
 coverage
 tsconfig.tsbuildinfo
+
+# local env files (build args belong in .env.example)
+.env
+.env.*
