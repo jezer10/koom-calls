@@ -133,6 +133,14 @@ export function useSignaling(options = {}) {
     s.connect();
   }
 
+  function connectWithToken(token) {
+    if (!token) return connect();
+    resetSocket();
+    socketRef.value = getSocket({ token });
+    attach();
+    return connect();
+  }
+
   function disconnect() {
     socketRef.value.disconnect();
     joined.value = false;
@@ -268,6 +276,7 @@ export function useSignaling(options = {}) {
     activeCallId,
     sfuRoom,
     connect,
+    connectWithToken,
     disconnect,
     joinRoom,
     emitSignal,

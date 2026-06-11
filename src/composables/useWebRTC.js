@@ -12,12 +12,42 @@ export function useMediaDevices() {
   const microphoneOn = ref(false);
   const error = ref(null);
 
-  async function start({ video = true, audio = true } = {}) {
+  /**
+   * Build a getUserMedia constraints object from the requested video/audio
+   * flags and the explicit deviceIds selected in the UI.
+   *
+   * @param {object} [opts]
+   * @param {boolean} [opts.video]
+   * @param {boolean} [opts.audio]
+   * @param {string} [opts.videoDeviceId]
+   * @param {string} [opts.audioDeviceId]
+   */
+  function buildConstraints({
+    video = true,
+    audio = true,
+    videoDeviceId,
+    audioDeviceId,
+  } = {}) {
+    const v = video
+      ? videoDeviceId
+        ? { deviceId: { exact: videoDeviceId } }
+        : true
+      : false;
+    const a = audio
+      ? audioDeviceId
+        ? { deviceId: { exact: audioDeviceId } }
+        : true
+      : false;
+    return { video: v, audio: a };
+  }
+
+  async function start(opts = {}) {
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error('mediaDevices.getUserMedia is not available');
       }
-      const next = await navigator.mediaDevices.getUserMedia({ video, audio });
+      const constraints = buildConstraints(opts);
+      const next = await navigator.mediaDevices.getUserMedia(constraints);
       stop();
       stream.value = next;
       cameraOn.value = next.getVideoTracks().length > 0;
@@ -27,6 +57,56 @@ export function useMediaDevices() {
       error.value = err?.message ?? String(err);
       throw err;
     }
+  }
+
+  /**
+   * Replace the audio or video track in the local stream and stop the old
+   * one. Returns the new MediaStreamTrack or `null` when video is being
+   * disabled and no replacement is available.
+   *
+   * @param {'audio'|'video'} kind
+   * @param {string} [deviceId]
+   * @returns {Promise<MediaStreamTrack|null>}
+   */
+  async function switchDevice(kind, deviceId) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('mediaDevices.getUserMedia is not available');
+    }
+    const audio = kind === 'audio';
+    const video = kind === 'video';
+    const constraints = buildConstraints({
+      video,
+      audio,
+      videoDeviceId: video ? deviceId : undefined,
+      audioDeviceId: audio ? deviceId : undefined,
+    });
+    const next = await navigator.mediaDevices.getUserMedia(constraints);
+    const newTrack = audio
+      ? next.getAudioTracks()[0] ?? null
+      : next.getVideoTracks()[0] ?? null;
+
+    if (!stream.value) {
+      stream.value = next;
+      cameraOn.value = next.getVideoTracks().length > 0;
+      microphoneOn.value = next.getAudioTracks().length > 0;
+      return newTrack;
+    }
+
+    const currentTracks = audio
+      ? stream.value.getAudioTracks()
+      : stream.value.getVideoTracks();
+    for (const old of currentTracks) {
+      stream.value.removeTrack(old);
+      try {
+        old.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (newTrack) stream.value.addTrack(newTrack);
+    if (audio) microphoneOn.value = Boolean(newTrack);
+    else cameraOn.value = Boolean(newTrack);
+    return newTrack;
   }
 
   function stop() {
@@ -64,7 +144,7 @@ export function useMediaDevices() {
 
   tryOnUnmount(() => stop());
 
-  return { stream, cameraOn, microphoneOn, error, start, stop, toggleCamera, toggleMicrophone };
+  return { stream, cameraOn, microphoneOn, error, start, stop, switchDevice, toggleCamera, toggleMicrophone };
 }
 
 export function useWebRTC() {
@@ -140,6 +220,41 @@ export function useWebRTC() {
     localStream.value = stream;
   }
 
+  /**
+   * Replace the local audio/video track in every active peer connection.
+   * Used when the user switches device in-call (P2P transport only).
+   *
+   * @param {'audio'|'video'} kind
+   * @param {MediaStreamTrack|null} newTrack
+   */
+  async function replaceLocalTrack(kind, newTrack) {
+    if (!newTrack && kind === 'video') {
+      for (const pc of peers.value.values()) {
+        const senders = pc.getSenders?.().filter((s) => s.track?.kind === 'video') ?? [];
+        for (const sender of senders) {
+          try {
+            await sender.replaceTrack(null);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      return;
+    }
+    for (const pc of peers.value.values()) {
+      const senders = pc.getSenders?.() ?? [];
+      for (const sender of senders) {
+        if (sender.track?.kind === kind) {
+          try {
+            await sender.replaceTrack(newTrack);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
+  }
+
   function closePeer(remoteSocketId) {
     const pc = peers.value.get(remoteSocketId);
     if (pc) pc.close();
@@ -165,6 +280,7 @@ export function useWebRTC() {
     remoteStreams,
     error,
     setLocalStream,
+    replaceLocalTrack,
     createOffer,
     handleOffer,
     handleAnswer,

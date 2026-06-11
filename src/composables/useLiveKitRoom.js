@@ -188,6 +188,23 @@ export function useLiveKitRoom(options = {}) {
     microphoneEnabled.value = enabled;
   }
 
+  /**
+   * Switch the active media device for the local participant in real time.
+   * Delegates to `livekit-client`'s `switchActiveDevice` API, which
+   * unpublishes the existing track and republishes one from the new
+   * device without renegotiating the session.
+   *
+   * @param {'videoinput'|'audioinput'} kind
+   * @param {string} deviceId
+   * @param {boolean} [enabled] - desired publish state after the switch
+   */
+  async function switchActiveDevice(kind, deviceId, enabled = true) {
+    const r = room.value;
+    if (!r) return;
+    if (typeof r.switchActiveDevice !== 'function') return;
+    await r.switchActiveDevice(kind, deviceId, enabled);
+  }
+
   async function disconnect() {
     const r = room.value;
     room.value = null;
@@ -223,6 +240,7 @@ export function useLiveKitRoom(options = {}) {
     unpublishTrack,
     setCameraEnabled,
     setMicrophoneEnabled,
+    switchActiveDevice,
   };
 }
 

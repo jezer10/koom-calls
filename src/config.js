@@ -1,27 +1,38 @@
+/**
+ * Derive the socket.io base URL from the REST API base URL. Both live on
+ * the same origin: REST is exposed at `<origin>/api/*` and socket.io's
+ * `signaling-client.js` concatenates the namespace, so we strip the API
+ * prefix here.
+ */
+function deriveSignalingUrl(apiBaseUrl) {
+  try {
+    const u = new URL(apiBaseUrl);
+    u.pathname = u.pathname.replace(/\/api\/?$/, '');
+    u.search = '';
+    u.hash = '';
+    return u.toString().replace(/\/$/, '');
+  } catch {
+    return 'http://localhost:8080';
+  }
+}
+
+const rawApiBaseUrl =
+  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api';
+
+function deriveFrontendOrigin() {
+  if (typeof window === 'undefined') return '';
+  if (import.meta.env.VITE_FRONTEND_ORIGIN) return import.meta.env.VITE_FRONTEND_ORIGIN;
+  return window.location.origin;
+}
+
 export const APP_CONFIG = {
-  signalingUrl:
-    import.meta.env.VITE_SIGNALING_URL ?? 'http://localhost:8080',
-  signalingNamespace:
-    import.meta.env.VITE_SIGNALING_NAMESPACE ?? '/signaling',
-  apiBaseUrl:
-    import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api',
-  sfuUrl:
-    import.meta.env.VITE_SFU_URL ?? 'ws://localhost:7880',
-  devAuthEnabled:
-    (import.meta.env.VITE_DEV_AUTH_ENABLED ?? 'true') === 'true',
-  iceServers: import.meta.env.VITE_ICE_SERVERS
-    ? import.meta.env.VITE_ICE_SERVERS.split(',').map((s) => {
-        const [url, ...rest] = s.trim().split('|');
-        const urls = url
-          .split(';')
-          .map((u) => u.trim())
-          .filter(Boolean);
-        const creds = {};
-        for (const part of rest) {
-          const [k, v] = part.split('=');
-          if (k && v) creds[k.trim()] = v.trim();
-        }
-        return { urls, ...creds };
-      })
-    : [{ urls: 'stun:stun.l.google.com:19302' }],
+  apiBaseUrl: rawApiBaseUrl,
+  signalingUrl: deriveSignalingUrl(rawApiBaseUrl),
+  signalingNamespace: '/signaling',
+  sfuUrl: import.meta.env.VITE_SFU_URL ?? 'ws://localhost:7880',
+  anonymousLoginEnabled:
+    (import.meta.env.VITE_ANONYMOUS_LOGIN_ENABLED ?? 'true') === 'true',
+  frontendOrigin: deriveFrontendOrigin(),
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
 };
+

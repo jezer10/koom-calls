@@ -25,14 +25,25 @@ describe('stores/user', () => {
     expect(store.isAuthenticated).toBe(false);
   });
 
-  it('setDisplayName persists to localStorage and updates isAuthenticated', () => {
+  it('setDisplayName persists to localStorage without affecting isAuthenticated', () => {
     localStorage.clear();
     setActivePinia(createPinia());
     const store = useUserStore();
     store.setDisplayName('Bob');
     expect(store.displayName).toBe('Bob');
     expect(localStorage.getItem('koom:displayName')).toBe('Bob');
+    expect(store.isAuthenticated).toBe(false);
+  });
+
+  it('setProfile updates isAuthenticated when a profile is provided', () => {
+    localStorage.clear();
+    setActivePinia(createPinia());
+    const store = useUserStore();
+    expect(store.isAuthenticated).toBe(false);
+    store.setProfile({ userId: 'g-1', displayName: 'Alice', provider: 'google' });
     expect(store.isAuthenticated).toBe(true);
+    store.clearProfile();
+    expect(store.isAuthenticated).toBe(false);
   });
 
   it('setUserId persists the new id', () => {

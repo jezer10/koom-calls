@@ -2,51 +2,95 @@ import { APP_CONFIG } from '../config.js';
 import { apiClient, getStoredToken, setStoredToken } from './client.js';
 
 /**
- * Dev login helper. Calls POST /auth/dev-login. If the backend is not
- * available we synthesize a token locally so the SPA can still mount during
- * offline development.
+ * List auth providers configured on the backend.
  *
- * @param {{ userId?: string, displayName?: string }} [payload]
- * @returns {Promise<{ token: string, userId: string, displayName: string }>}
+ * @returns {Promise<Array<{ name: string, displayName: string, enabled: boolean, startUrl?: string }>>}
  */
-export async function devLogin(payload = {}) {
-  const userId = payload.userId ?? `user-${Date.now().toString(36)}`;
-  const displayName = payload.displayName ?? 'Guest';
+export async function getProviders() {
+  const { data } = await apiClient.get('/auth/providers');
+  return Array.isArray(data?.providers) ? data.providers : [];
+}
+
+/**
+ * Fetch the current user profile. Returns null if not signed in.
+ *
+ * @returns {Promise<{ userId: string, displayName: string, email: string|null, picture: string|null, provider: string, lastLoginAt: string|null }|null>}
+ */
+export async function getMe() {
   try {
-    const { data } = await apiClient.post('/auth/dev-login', {
-      userId,
-      displayName,
-    });
-    const token = data?.token ?? synthesizeToken(userId);
-    setStoredToken(token);
-    return { token, userId, displayName };
+    const { data } = await apiClient.get('/auth/me');
+    return data;
   } catch (err) {
-    if (!APP_CONFIG.devAuthEnabled) throw err;
-    const token = synthesizeToken(userId);
-    setStoredToken(token);
-    return { token, userId, displayName };
+    if (err?.response?.status === 401 || err?.response?.status === 403) {
+      return null;
+    }
+    throw err;
   }
 }
 
-export function getToken() {
-  return getStoredToken();
+/**
+ * Anonymous login (no password, no email). Returns the new user profile.
+ * The session cookie is set automatically by the backend.
+ *
+ * @param {{ displayName?: string }} [payload]
+ * @returns {Promise<{ userId: string, displayName: string, provider: string, email: string|null, picture: string|null }>}
+ */
+export async function anonymousLogin(payload = {}) {
+  const { data } = await apiClient.post('/auth/anonymous/login', {
+    displayName: payload.displayName,
+  });
+  return data;
 }
 
+/**
+ * Fetch a short-lived single-use JWT for connecting to the signaling
+ * WebSocket. The back's JwtAuthGuard accepts both the httpOnly session
+ * cookie and an Authorization header; socket.io-client cannot read
+ * httpOnly cookies, so we obtain a token first.
+ *
+ * @returns {Promise<{ token: string, expiresAt: number }>}
+ */
+export async function getWsToken() {
+  const { data } = await apiClient.get('/auth/ws-token');
+  return data;
+}
+
+/**
+ * Clear the local session token. Note: the httpOnly cookie on the
+ * backend is cleared via `POST /auth/logout` (best-effort), which the
+ * caller should invoke before this.
+ */
 export function clearToken() {
   setStoredToken(null);
 }
 
-function synthesizeToken(userId) {
-  const header = btoaSafe(JSON.stringify({ alg: 'none', typ: 'JWT' }));
-  const body = btoaSafe(
-    JSON.stringify({ sub: userId, iat: Math.floor(Date.now() / 1000) }),
-  );
-  return `${header}.${body}.local`;
+/**
+ * Best-effort logout: clears the httpOnly cookie on the back, then
+ * drops the local token.
+ */
+export async function logout() {
+  try {
+    await apiClient.post('/auth/logout');
+  } catch {
+    /* ignore network errors; we still clear local state */
+  }
+  setStoredToken(null);
 }
 
-function btoaSafe(value) {
-  if (typeof btoa === 'function') {
-    return btoa(value).replace(/=+$/, '');
-  }
-  return Buffer.from(value, 'utf-8').toString('base64').replace(/=+$/, '');
+/**
+ * @deprecated kept for backwards-compat. Returns the locally cached
+ * token (delivered via postMessage from the OAuth popup) or null.
+ */
+export function getToken() {
+  return getStoredToken();
 }
+
+/**
+ * @deprecated kept for backwards-compat. The token is delivered by the
+ * backend via postMessage + httpOnly cookie, not assigned here.
+ */
+export function setToken(token) {
+  setStoredToken(token);
+}
+
+export const APP_CONFIG_AUTH = APP_CONFIG;

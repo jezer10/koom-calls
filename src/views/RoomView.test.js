@@ -75,8 +75,9 @@ const mocks = vi.hoisted(() => {
     toggleMicrophone: vi.fn().mockReturnValue(false),
   };
   const auth = {
-    devLogin: vi.fn().mockResolvedValue({ token: 'jwt-1', userId: 'u1', displayName: 'Alice' }),
-    getToken: vi.fn().mockReturnValue('jwt-1'),
+    getMe: vi.fn().mockResolvedValue({ userId: 'u1', displayName: 'Alice', provider: 'google' }),
+    getWsToken: vi.fn().mockResolvedValue({ token: 'ws.jwt', expiresAt: 0 }),
+    getToken: vi.fn().mockReturnValue(null),
     clearToken: vi.fn(),
   };
   const calls = {
@@ -94,7 +95,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('../composables/useSignaling.js', () => ({
-  useSignaling: () => mocks.signaling,
+  useSignaling: () => ({ ...mocks.signaling, connectWithToken: vi.fn() }),
   SIGNALING_EVENTS: {
     CallInvite: 'call:invite',
     CallRinging: 'call:ringing',
@@ -118,9 +119,14 @@ vi.mock('../composables/useWebRTC.js', () => ({
 }));
 
 vi.mock('../api/auth.js', () => ({
-  devLogin: mocks.auth.devLogin,
+  getMe: mocks.auth.getMe,
+  getWsToken: mocks.auth.getWsToken,
   getToken: mocks.auth.getToken,
   clearToken: mocks.auth.clearToken,
+  anonymousLogin: vi.fn(),
+  logout: vi.fn(),
+  getProviders: vi.fn(),
+  setToken: vi.fn(),
 }));
 
 vi.mock('../api/calls.js', () => ({

@@ -1,15 +1,64 @@
 import { apiClient } from './client.js';
 
 /**
- * Create a new call (room). Backend may not implement this yet; if it 404s
- * the caller should treat it as "use existing call id".
+ * Create a new call. The backend is the source of truth for the
+ * `roomId` (the human-shareable code) and for the internal `id` (UUID);
+ * the client only sends optional `invitees` and the `visibility` mode.
  *
- * @param {{ displayName?: string }} [payload]
- * @returns {Promise<{ id: string, roomId: string, createdAt?: string }>}
+ * @param {{
+ *   invitees?: string[],
+ *   visibility?: 'private' | 'link',
+ * }} [payload]
+ * @returns {Promise<{
+ *   id: string,
+ *   roomId: string,
+ *   visibility: 'private' | 'link',
+ *   createdAt?: string,
+ * }>}
  */
 export async function createCall(payload = {}) {
-  const { data } = await apiClient.post('/calls', payload);
-  return normalizeCall(data);
+  const body = { visibility: 'link', ...payload };
+  const { data } = await apiClient.post('/calls', body);
+  return {
+    ...normalizeCall(data),
+    visibility: data?.visibility ?? 'link',
+  };
+}
+
+/**
+ * List the authenticated user's calls, sorted by createdAt desc.
+ * Each entry is a lightweight summary; fetch the full record with
+ * `getCall(id)` when needed.
+ *
+ * @param {{ status?: 'all' | 'pending' | 'active' | 'ended' }} [options]
+ * @returns {Promise<Array<{
+ *   id: string,
+ *   roomId: string,
+ *   status: 'pending' | 'active' | 'ended',
+ *   visibility: 'private' | 'link',
+ *   creatorId: string,
+ *   createdAt: string,
+ *   startedAt?: string,
+ *   endedAt?: string,
+ *   participantCount: number,
+ * }>>}
+ */
+export async function listMyCalls(options = {}) {
+  const params = {};
+  if (options.status) params.status = options.status;
+  const { data } = await apiClient.get('/calls/mine', { params });
+  const calls = Array.isArray(data?.calls) ? data.calls : [];
+  return calls.map((c) => ({
+    id: c.id,
+    roomId: c.roomId,
+    status: c.status,
+    visibility: c.visibility ?? 'link',
+    creatorId: c.creatorId,
+    createdAt: c.createdAt,
+    startedAt: c.startedAt,
+    endedAt: c.endedAt,
+    participantCount: c.participantCount ?? 0,
+  }));
 }
 
 /**
@@ -25,13 +74,18 @@ export async function getCall(callId) {
 }
 
 /**
- * Fetch ICE servers (TURN/STUN credentials). Returns a list of
- * `{ urls, username?, credential? }` entries compatible with WebRTC.
+ * Fetch ICE servers (TURN/STUN credentials) scoped to a call. Returns a
+ * list of `{ urls, username?, credential? }` entries compatible with
+ * WebRTC. Accepts several response shapes for forward compatibility.
  *
+ * @param {string} callId
  * @returns {Promise<Array<{ urls: string|string[], username?: string, credential?: string }>>}
  */
-export async function getIceServers() {
-  const { data } = await apiClient.get('/turn/credentials');
+export async function getIceServers(callId) {
+  if (!callId) throw new Error('callId is required');
+  const { data } = await apiClient.get(
+    `/calls/${encodeURIComponent(callId)}/turn-credentials`,
+  );
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.iceServers)) return data.iceServers;
   if (Array.isArray(data?.servers)) return data.servers;
@@ -50,7 +104,7 @@ export async function getIceServers() {
 export async function getSfuToken(callId) {
   if (!callId) throw new Error('callId is required');
   try {
-    const { data } = await apiClient.get(
+    const { data } = await apiClient.post(
       `/calls/${encodeURIComponent(callId)}/sfu-token`,
     );
     return {
