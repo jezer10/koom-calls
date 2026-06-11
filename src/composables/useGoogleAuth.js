@@ -10,6 +10,24 @@ const POPUP_TIMEOUT_MS = 5 * 60 * 1000;
 // postMessage a brief window to land before declaring the flow abandoned.
 const FOCUS_GRACE_PERIOD_MS = 350;
 
+/**
+ * The OAuth callback runs on the back's origin (it serves
+ * `/auth/google/callback`), so `event.origin` will be the back's origin,
+ * not the front's. In dev both share an origin and `event.origin` matches
+ * `frontendOrigin`; in cross-origin prod the popup is on
+ * `APP_CONFIG.backendOrigin` while the front lives on
+ * `APP_CONFIG.frontendOrigin`. The `targetOrigin` passed by the back in
+ * `postMessage(data, FRONTEND_ORIGIN)` already restricts delivery to the
+ * right window, so this check is a defense-in-depth filter that accepts
+ * either the back or the front origin.
+ */
+function isTrustedSender(origin) {
+  if (!origin) return false;
+  if (origin === APP_CONFIG.frontendOrigin) return true;
+  if (APP_CONFIG.backendOrigin && origin === APP_CONFIG.backendOrigin) return true;
+  return false;
+}
+
 function popupCenter() {
   if (typeof window === 'undefined') return POPUP_FEATURES;
   const w = window.innerWidth || 1024;
@@ -69,7 +87,7 @@ export function useGoogleAuth() {
   }
 
   function handleMessage(event) {
-    if (event.origin !== APP_CONFIG.frontendOrigin) return;
+    if (!isTrustedSender(event.origin)) return;
     if (!event.data || typeof event.data !== 'object') return;
     if (event.data.type === OAUTH_MESSAGE_TYPE) {
       if (event.data.token) setToken(event.data.token);

@@ -9,6 +9,7 @@ vi.mock('../api/auth.js', () => ({ setToken: setTokenMock }));
 vi.mock('../config.js', () => ({
   APP_CONFIG: {
     frontendOrigin: 'http://localhost:5173',
+    backendOrigin: 'http://localhost:8080',
     apiBaseUrl: 'http://localhost:8080/api',
   },
 }));
@@ -53,8 +54,10 @@ describe('GoogleSignInButton', () => {
     wrapper.find('button').trigger('click');
     await flush();
 
+    // The OAuth callback is served by the back, so event.origin is the
+    // back's origin (cross-origin postMessage from the popup).
     const event = new MessageEvent('message', {
-      origin: 'http://localhost:5173',
+      origin: 'http://localhost:8080',
       data: {
         type: 'koom-oauth-success',
         token: 'jwt',
@@ -105,7 +108,7 @@ describe('GoogleSignInButton', () => {
     await flush();
     window.dispatchEvent(
       new MessageEvent('message', {
-        origin: 'http://localhost:5173',
+        origin: 'http://localhost:8080',
         data: { type: 'koom-oauth-error', message: 'access_denied' },
       }),
     );
@@ -173,7 +176,7 @@ describe('GoogleSignInButton', () => {
     await new Promise((r) => setTimeout(r, 50));
     window.dispatchEvent(
       new MessageEvent('message', {
-        origin: 'http://localhost:5173',
+        origin: 'http://localhost:8080',
         data: {
           type: 'koom-oauth-success',
           token: 'jwt',

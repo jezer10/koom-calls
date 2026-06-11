@@ -16,6 +16,15 @@ function deriveSignalingUrl(apiBaseUrl) {
   }
 }
 
+function deriveBackendOrigin(apiBaseUrl) {
+  try {
+    const u = new URL(apiBaseUrl);
+    return u.origin;
+  } catch {
+    return '';
+  }
+}
+
 const rawApiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api';
 
@@ -28,6 +37,7 @@ function deriveFrontendOrigin() {
 export const APP_CONFIG = {
   apiBaseUrl: rawApiBaseUrl,
   signalingUrl: deriveSignalingUrl(rawApiBaseUrl),
+  backendOrigin: deriveBackendOrigin(rawApiBaseUrl),
   signalingNamespace: '/signaling',
   sfuUrl: import.meta.env.VITE_SFU_URL ?? 'ws://localhost:7880',
   anonymousLoginEnabled:
