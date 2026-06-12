@@ -6,7 +6,6 @@ import RoomView from './RoomView.vue';
 
 const mocks = vi.hoisted(() => {
   const signaling = {
-    transport: 'livekit',
     socket: { value: { id: 'self-1' } },
     connected: { value: false },
     joined: { value: false },
@@ -20,14 +19,9 @@ const mocks = vi.hoisted(() => {
     connect: vi.fn(),
     disconnect: vi.fn(),
     joinRoom: vi.fn().mockResolvedValue({ socketIds: [], members: [] }),
-    emitSignal: vi.fn(),
     emitSfuJoinRoom: vi.fn(),
     emitSfuPublishTrack: vi.fn(),
     emitCallInvite: vi.fn(),
-    onUserJoined: vi.fn(),
-    onUserLeft: vi.fn(),
-    onSignal: vi.fn(),
-    onException: vi.fn(),
     onCallInvite: vi.fn(),
     onCallRinging: vi.fn(),
     onCallAccept: vi.fn(),
@@ -52,17 +46,6 @@ const mocks = vi.hoisted(() => {
     unpublishTrack: vi.fn().mockResolvedValue(undefined),
     setCameraEnabled: vi.fn().mockResolvedValue(undefined),
     setMicrophoneEnabled: vi.fn().mockResolvedValue(undefined),
-  };
-  const rtc = {
-    setLocalStream: vi.fn(),
-    createOffer: vi.fn(),
-    handleOffer: vi.fn(),
-    handleAnswer: vi.fn(),
-    addIceCandidate: vi.fn(),
-    closePeer: vi.fn(),
-    closeAll: vi.fn(),
-    remoteStreams: { value: new Map() },
-    peers: { value: new Map() },
   };
   const media = {
     stream: { value: null },
@@ -90,8 +73,10 @@ const mocks = vi.hoisted(() => {
       mocked: true,
     }),
     createCall: vi.fn(),
+    joinCall: vi.fn().mockResolvedValue({ id: 'c-1', roomId: 'ABC-DEF-GHI', status: 'active', participants: [] }),
+    getCall: vi.fn(),
   };
-  return { signaling, livekit, rtc, media, auth, calls };
+  return { signaling, livekit, media, auth, calls };
 });
 
 vi.mock('../composables/useSignaling.js', () => ({
@@ -113,9 +98,8 @@ vi.mock('../composables/useLiveKitRoom.js', () => ({
   findPublication: vi.fn().mockReturnValue(null),
 }));
 
-vi.mock('../composables/useWebRTC.js', () => ({
+vi.mock('../composables/useMediaDevices.js', () => ({
   useMediaDevices: () => mocks.media,
-  useWebRTC: () => mocks.rtc,
 }));
 
 vi.mock('../api/auth.js', () => ({
@@ -134,6 +118,7 @@ vi.mock('../api/calls.js', () => ({
   getSfuToken: mocks.calls.getSfuToken,
   createCall: mocks.calls.createCall,
   getCall: vi.fn(),
+  joinCall: mocks.calls.joinCall,
 }));
 
 vi.mock('livekit-client', () => ({
@@ -188,7 +173,7 @@ async function mountRoom(propsOverride = {}) {
   return { wrapper, router };
 }
 
-describe('RoomView (LiveKit default transport)', () => {
+describe('RoomView (LiveKit SFU)', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     // jsdom's HTMLMediaElement.play raises "Not implemented". Override it with
@@ -196,7 +181,7 @@ describe('RoomView (LiveKit default transport)', () => {
     HTMLMediaElement.prototype.play = function play() {
       return Promise.resolve();
     };
-    for (const m of [mocks.calls, mocks.auth, mocks.livekit, mocks.media, mocks.rtc, mocks.signaling]) {
+    for (const m of [mocks.calls, mocks.auth, mocks.livekit, mocks.media, mocks.signaling]) {
       for (const v of Object.values(m)) {
         if (v && typeof v === 'object' && typeof v.mockClear === 'function') {
           v.mockClear();
@@ -216,17 +201,17 @@ describe('RoomView (LiveKit default transport)', () => {
     mocks.auth.getToken.mockReturnValue('jwt-1');
   });
 
-  it('renders the room shell and the transport toggle', async () => {
+  it('renders the room shell', async () => {
     const { wrapper } = await mountRoom();
     expect(wrapper.find('[data-testid="room-view"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="media-controls"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="transport-toggle"]').exists()).toBe(true);
     // The local video tile should appear once bootstrap finishes.
     expect(wrapper.find('video').exists()).toBe(true);
   });
 
-  it('on mount: fetches ICE servers and SFU token, connects LiveKit, publishes tracks', async () => {
+  it('on mount: registers as participant, fetches ICE servers and SFU token, connects LiveKit, publishes tracks', async () => {
     const { wrapper } = await mountRoom();
+    expect(mocks.calls.joinCall).toHaveBeenCalledWith('ABC-DEF-GHI');
     expect(mocks.calls.getIceServers).toHaveBeenCalled();
     expect(mocks.calls.getSfuToken).toHaveBeenCalledWith('ABC-DEF-GHI');
     expect(mocks.livekit.connect).toHaveBeenCalledWith({
@@ -241,26 +226,20 @@ describe('RoomView (LiveKit default transport)', () => {
     expect(wrapper.find('[data-testid="room-error"]').exists()).toBe(false);
   });
 
+  it('surfaces an error when joinCall rejects (e.g. private call without invite)', async () => {
+    mocks.calls.joinCall.mockRejectedValueOnce(new Error('not a participant'));
+    const { wrapper } = await mountRoom();
+    expect(wrapper.find('[data-testid="room-error"]').text()).toContain('not a participant');
+  });
+
   it('leave() disconnects the LiveKit room, the socket, and navigates home', async () => {
     const { wrapper, router } = await mountRoom();
     const pushSpy = vi.spyOn(router, 'push');
     await wrapper.find('[data-testid="leave-room"]').trigger('click');
     expect(mocks.livekit.disconnect).toHaveBeenCalled();
     expect(mocks.signaling.disconnect).toHaveBeenCalled();
-    expect(mocks.rtc.closeAll).toHaveBeenCalled();
     expect(mocks.media.stop).toHaveBeenCalled();
     expect(pushSpy).toHaveBeenCalledWith({ name: 'home' });
-  });
-
-  it('switching the transport to p2p tears down LiveKit and joins the legacy room', async () => {
-    const { wrapper } = await mountRoom();
-    expect(mocks.livekit.connect).toHaveBeenCalledTimes(1);
-    const select = wrapper.find('[data-testid="transport-select"]');
-    await select.setValue('p2p');
-    await flushPromises();
-    expect(mocks.livekit.disconnect).toHaveBeenCalled();
-    expect(mocks.rtc.setLocalStream).toHaveBeenCalled();
-    expect(mocks.signaling.joinRoom).toHaveBeenCalled();
   });
 
   it('surfaces an error message when LiveKit connect fails', async () => {

@@ -127,7 +127,6 @@ import { useUserStore } from '../stores/user.js';
 
 const props = defineProps({
   roomId: { type: String, required: true },
-  transport: { type: String, default: 'livekit' },
 });
 
 const route = useRoute();
@@ -242,7 +241,6 @@ function enter() {
     name: 'room',
     params: { roomId: props.roomId },
     query: {
-      transport: props.transport,
       videoDeviceId: selectedCameraId.value,
       audioDeviceId: selectedMicrophoneId.value,
     },

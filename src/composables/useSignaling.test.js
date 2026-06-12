@@ -84,28 +84,4 @@ describe('useSignaling', () => {
     await expect(promise).rejects.toThrow('forbidden');
     expect(api.error.value).toBe('forbidden');
   });
-
-  it('emitSignal() sends the correct payload', async () => {
-    const api = useSignaling();
-    const promise = api.joinRoom('r1', 'u1');
-    const onceCalls = socketMock.once.mock.calls;
-    const existing = onceCalls.find((c) => c[0] === 'existing-users')?.[1];
-    existing?.({ socketIds: [], members: [] });
-    await promise;
-    api.emitSignal('offer', 's2', { sdp: 'x' });
-    expect(socketMock.emit).toHaveBeenCalledWith('offer', {
-      roomId: 'r1',
-      to: 's2',
-      signal: { sdp: 'x' },
-    });
-  });
-
-  it('emitSignal() is a no-op when not in a room', () => {
-    const api = useSignaling();
-    api.emitSignal('offer', 's2', { sdp: 'x' });
-    const relevantEmits = socketMock.emit.mock.calls.filter(
-      (c) => c[0] === 'offer',
-    );
-    expect(relevantEmits).toHaveLength(0);
-  });
 });

@@ -7,17 +7,6 @@ import { getSocket, resetSocket } from '../api/socket.js';
  * typing strings.
  */
 export const SIGNALING_EVENTS = Object.freeze({
-  // Legacy P2P mesh (transport = 'p2p')
-  Join: 'join',
-  ExistingUsers: 'existing-users',
-  UserJoined: 'user-joined',
-  UserLeft: 'user-left',
-  Signal: 'signal',
-  Offer: 'offer',
-  Answer: 'answer',
-  IceCandidate: 'ice-candidate',
-  Exception: 'exception',
-  // M2 control plane (transport = 'livekit')
   CallInvite: 'call:invite',
   CallRinging: 'call:ringing',
   CallAccept: 'call:accept',
@@ -33,19 +22,15 @@ export const SIGNALING_EVENTS = Object.freeze({
 /**
  * Build the useSignaling composable.
  *
- * The legacy mesh `offer/answer/ice-candidate` flow is preserved and used
- * only when the caller requests `transport === 'p2p'`. The M2 events
- * (`call:invite`, `peer:joined`, `sfu:join-room`, …) are wired in as
- * additional no-op-on-registration listeners that simply populate
- * reactive state for the rest of the SPA to consume.
+ * Wires the M2 control plane (`call:invite`, `peer:joined`, `sfu:join-room`, …)
+ * listeners that simply populate reactive state for the rest of the SPA to
+ * consume. Media goes through LiveKit SFU; there is no P2P fallback.
  *
  * @param {object} [options]
- * @param {'livekit'|'p2p'} [options.transport='livekit']
  * @param {string|null} [options.token=null] - JWT for namespace handshake
  * @returns {object}
  */
 export function useSignaling(options = {}) {
-  const transport = options.transport ?? 'livekit';
   const token = options.token ?? null;
   const socketRef = shallowRef(getSocket({ token }));
   const connected = ref(false);
@@ -70,17 +55,6 @@ export function useSignaling(options = {}) {
     });
     s.on('connect_error', (err) => {
       error.value = err?.message ?? 'connect_error';
-    });
-    s.on(SIGNALING_EVENTS.UserJoined, (payload) => {
-      if (!payload) return;
-      peers.value = [
-        ...peers.value,
-        { socketId: payload.socketId, userId: payload.userId },
-      ];
-    });
-    s.on(SIGNALING_EVENTS.UserLeft, (payload) => {
-      if (!payload?.socketId) return;
-      peers.value = peers.value.filter((p) => p.socketId !== payload.socketId);
     });
     s.on(SIGNALING_EVENTS.PeerJoined, (payload) => {
       if (!payload) return;
@@ -188,23 +162,6 @@ export function useSignaling(options = {}) {
     });
   }
 
-  function emitSignal(type, to, signal) {
-    if (!roomId.value) return;
-    socketRef.value.emit(type, { roomId: roomId.value, to, signal });
-  }
-
-  function onUserJoined(handler) {
-    socketRef.value.on('user-joined', handler);
-  }
-  function onUserLeft(handler) {
-    socketRef.value.on('user-left', handler);
-  }
-  function onSignal(handler) {
-    socketRef.value.on('signal', handler);
-  }
-  function onException(handler) {
-    socketRef.value.on('exception', handler);
-  }
   function onCallInvite(handler) {
     socketRef.value.on(SIGNALING_EVENTS.CallInvite, handler);
   }
@@ -234,10 +191,6 @@ export function useSignaling(options = {}) {
   }
   function offAll() {
     const s = socketRef.value;
-    s.off('user-joined');
-    s.off('user-left');
-    s.off('signal');
-    s.off('exception');
     for (const evt of Object.values(SIGNALING_EVENTS)) {
       s.off(evt);
     }
@@ -264,7 +217,6 @@ export function useSignaling(options = {}) {
   }
 
   return {
-    transport,
     socket: socketRef,
     connected,
     joined,
@@ -279,11 +231,6 @@ export function useSignaling(options = {}) {
     connectWithToken,
     disconnect,
     joinRoom,
-    emitSignal,
-    onUserJoined,
-    onUserLeft,
-    onSignal,
-    onException,
     onCallInvite,
     onCallRinging,
     onCallAccept,

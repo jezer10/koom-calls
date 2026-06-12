@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { useMediaDevices, useWebRTC } from './useWebRTC.js';
+import { useMediaDevices } from './useMediaDevices.js';
 
 class FakeMediaStream {
   constructor(tracks) {
@@ -110,21 +110,5 @@ describe('useMediaDevices', () => {
     media.stop();
     expect(videoTrack.stopped).toBe(true);
     expect(media.stream.value).toBeNull();
-  });
-});
-
-describe('useWebRTC', () => {
-  it('setLocalStream stores the stream', () => {
-    const rtc = useWebRTC();
-    const stream = new FakeMediaStream([]);
-    rtc.setLocalStream(stream);
-    expect(rtc.localStream.value).toBe(stream);
-  });
-
-  it('closeAll() clears peers and streams', () => {
-    const rtc = useWebRTC();
-    rtc.closeAll();
-    expect(rtc.peers.value.size).toBe(0);
-    expect(rtc.remoteStreams.value.size).toBe(0);
   });
 });
