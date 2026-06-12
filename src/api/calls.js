@@ -93,6 +93,28 @@ export async function getIceServers(callId) {
 }
 
 /**
+ * Join an existing call as the current user (authenticated or anonymous
+ * guest). Idempotent: re-joining is a no-op for users that are already
+ * participants. For link-visibility calls this also flips a pending call
+ * to active.
+ *
+ * @param {string} callId
+ * @returns {Promise<{ id: string, roomId: string, status: string, participants: Array<unknown> }>}
+ */
+export async function joinCall(callId) {
+  if (!callId) throw new Error('callId is required');
+  const { data } = await apiClient.post(
+    `/calls/${encodeURIComponent(callId)}/join`,
+  );
+  return {
+    id: data?.id ?? '',
+    roomId: data?.roomId ?? callId,
+    status: data?.status ?? 'pending',
+    participants: Array.isArray(data?.participants) ? data.participants : [],
+  };
+}
+
+/**
  * Fetch a LiveKit access token for a call. The backend may not implement
  * this yet; when it 404s we generate a placeholder token locally so the SPA
  * can be developed and tested against a mock SFU or a non-authenticated

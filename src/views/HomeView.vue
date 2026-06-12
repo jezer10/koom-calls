@@ -2,20 +2,20 @@
   <div class="flex h-screen w-screen flex-col bg-indigo-50">
     <AppNav />
     <main class="flex flex-1 flex-col items-center justify-center gap-8 overflow-y-auto p-10">
-      <h1 class="text-5xl font-bold">Welcome to Koom CALLS!</h1>
+      <h1 class="text-5xl font-bold">
+        Welcome to Koom CALLS!
+      </h1>
 
-      <div v-if="!user.isAuthenticated" class="flex w-full max-w-md flex-col gap-6">
-        <p class="text-center text-sm text-gray-600">
-          Iniciá sesión para crear o unirte a una reunión.
+      <div class="flex w-full max-w-md flex-col gap-6">
+        <p
+          v-if="!user.isAuthenticated"
+          class="text-center text-sm text-gray-600"
+          data-testid="home-signed-out-hint"
+        >
+          Iniciá sesión con Google para crear una reunión. Para unirte solo
+          necesitás el código de sala.
         </p>
-        <AuthPrompt
-          data-testid="home-auth"
-          :return-to="returnTo"
-          @signed-in="onAuthSucceeded"
-        />
-      </div>
 
-      <div v-else class="flex w-full max-w-md flex-col gap-6">
         <div class="flex flex-col gap-4">
           <button
             class="rounded-full bg-red-900 py-4 text-2xl font-bold text-white hover:bg-red-800 focus:ring-4 focus:ring-purple-900"
@@ -29,11 +29,22 @@
             class="rounded-full bg-red-900 py-4 text-2xl font-bold text-white hover:bg-red-800 focus:ring-4 focus:ring-purple-900"
             data-testid="create-room"
             :disabled="creating"
-            @click="createRoom"
+            @click="onCreateClick"
           >
             {{ creating ? 'CREANDO…' : 'CREATE NEW ROOM' }}
           </button>
         </div>
+
+        <AuthPrompt
+          v-if="showCreateAuth"
+          data-testid="home-create-auth"
+          title="Necesitás iniciar sesión para crear una reunión"
+          description="Usá tu cuenta de Google para continuar."
+          :show-anonymous="false"
+          :return-to="returnTo"
+          @signed-in="onCreateAuthSucceeded"
+          @error="onCreateAuthError"
+        />
 
         <p
           v-if="homeError"
@@ -44,11 +55,14 @@
         </p>
 
         <section
+          v-if="user.isAuthenticated"
           class="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4"
           data-testid="my-calls"
         >
           <header class="flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-gray-700">Tus reuniones activas</h2>
+            <h2 class="text-sm font-semibold text-gray-700">
+              Tus reuniones activas
+            </h2>
             <button
               type="button"
               class="text-xs text-indigo-600 hover:underline disabled:text-gray-400"
@@ -72,7 +86,11 @@
           >
             No tenés reuniones activas. Creá una para empezar.
           </p>
-          <ul v-else class="flex flex-col gap-2" data-testid="my-calls-list">
+          <ul
+            v-else
+            class="flex flex-col gap-2"
+            data-testid="my-calls-list"
+          >
             <li
               v-for="call in activeCalls"
               :key="call.id"
@@ -123,6 +141,7 @@ const route = useRoute();
 const user = useUserStore();
 const room = useRoomStore();
 const showJoin = ref(false);
+const showCreateAuth = ref(false);
 const creating = ref(false);
 const homeError = ref('');
 const loadingCalls = ref(false);
@@ -151,6 +170,16 @@ function joinRoom(code) {
   router.push({ name: 'prejoin', params: { roomId: upper } });
 }
 
+function onCreateClick() {
+  if (creating.value) return;
+  if (!user.isAuthenticated) {
+    showCreateAuth.value = true;
+    homeError.value = '';
+    return;
+  }
+  createRoom();
+}
+
 async function createRoom() {
   if (creating.value) return;
   creating.value = true;
@@ -158,7 +187,6 @@ async function createRoom() {
   try {
     const call = await createCall();
     room.setCall({ id: call.id, roomId: call.roomId });
-    // Refresh the listing so the new call shows up.
     await loadMyCalls();
     router.push({ name: 'prejoin', params: { roomId: call.roomId } });
   } catch (err) {
@@ -167,6 +195,17 @@ async function createRoom() {
   } finally {
     creating.value = false;
   }
+}
+
+function onCreateAuthSucceeded() {
+  showCreateAuth.value = false;
+  // Only kick off the create flow if the user explicitly asked for it;
+  // other sign-ins (e.g. triggered by AppNav) should not auto-create a room.
+  createRoom();
+}
+
+function onCreateAuthError(message) {
+  if (message) homeError.value = message;
 }
 
 function enterCall(call) {
@@ -188,26 +227,18 @@ async function loadMyCalls() {
   }
 }
 
-// When the user signs in (e.g. via anonymous login on this same view),
-// jump to the intended destination if the router gave us one, and
-// refresh the meeting list.
+// Refresh the meeting list whenever the user transitions to signed-in.
+// We intentionally do NOT auto-resume a `?next=...` from the router here:
+// the bouncer that used to redirect is gone now that prejoin/room are
+// public, so the only reason to land on `?next=...` is a legacy link.
 watch(
   () => user.isAuthenticated,
   async (signedIn, wasSignedIn) => {
     if (signedIn && !wasSignedIn) {
-      const next = typeof route.query.next === 'string' ? route.query.next : '';
       await loadMyCalls();
-      if (next && next.startsWith('/')) {
-        router.replace(next);
-      }
     }
   },
 );
-
-function onAuthSucceeded() {
-  // The watcher above handles the navigation; this is a hook for
-  // any future side effects.
-}
 
 function formatRelative(iso) {
   if (!iso) return '';

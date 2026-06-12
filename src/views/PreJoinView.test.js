@@ -36,8 +36,18 @@ vi.mock('../composables/useDeviceList.js', () => ({
 
 import PreJoinView from './PreJoinView.vue';
 
-async function mountView() {
+async function mountView({ signedIn = false } = {}) {
   setActivePinia(createPinia());
+  if (signedIn) {
+    const { useUserStore } = await import('../stores/user.js');
+    useUserStore().setProfile({
+      userId: 'u-1',
+      displayName: 'Alice',
+      email: 'a@x.com',
+      picture: 'http://x/p.png',
+      provider: 'google',
+    });
+  }
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -53,55 +63,58 @@ async function mountView() {
   });
 }
 
-describe('PreJoinView auth', () => {
+describe('PreJoinView', () => {
   beforeEach(() => {
     authMock.getMe.mockReset();
     authMock.anonymousLogin.mockReset();
   });
 
-  it('shows the login section when not signed in', async () => {
-    authMock.getProviders.mockResolvedValue([
-      { name: 'google', displayName: 'Google', enabled: true, startUrl: '/auth/google/start' },
-      { name: 'anonymous', displayName: 'Invitado', enabled: true, startUrl: '/auth/anonymous/login' },
-    ]);
+  it('silently logs in as a guest when no session exists', async () => {
     authMock.getMe.mockResolvedValue(null);
-    const wrapper = await mountView();
-    await flushPromises();
-    expect(wrapper.find('[data-testid="pre-join-auth"]').exists()).toBe(true);
-  });
-
-  it('hides the login section when the user store already has a profile', async () => {
-    authMock.getProviders.mockResolvedValue([
-      { name: 'google', displayName: 'Google', enabled: true, startUrl: '/auth/google/start' },
-    ]);
-    const wrapper = await mountView();
-    await flushPromises();
-    const { useUserStore } = await import('../stores/user.js');
-    useUserStore().setProfile({
-      userId: 'g-1',
-      displayName: 'Alice',
-      email: 'a@x.com',
-      picture: 'http://x/p.png',
-      provider: 'google',
+    authMock.anonymousLogin.mockResolvedValue({
+      userId: 'anon-1',
+      displayName: 'Guest',
+      provider: 'anonymous',
     });
-    await flushPromises();
-    expect(wrapper.find('[data-testid="pre-join-auth"]').exists()).toBe(false);
-  });
-
-  it('renders the auth section before the device preview when not signed in', async () => {
-    authMock.getProviders.mockResolvedValue([
-      { name: 'google', displayName: 'Google', enabled: true, startUrl: '/auth/google/start' },
-    ]);
-    authMock.getMe.mockResolvedValue(null);
     const wrapper = await mountView();
     await flushPromises();
-    const auth = wrapper.find('[data-testid="pre-join-auth"]');
-    const preview = wrapper.find('[data-testid="preview-container"]');
-    expect(auth.exists()).toBe(true);
-    expect(preview.exists()).toBe(true);
-    // In the rendered DOM, the auth block must appear above the preview,
-    // so a user is never asked for camera/mic before signing in.
-    expect(auth.element.compareDocumentPosition(preview.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(authMock.anonymousLogin).toHaveBeenCalledWith(
+      expect.objectContaining({ displayName: 'Guest' }),
+    );
+    // Once auto-login completes the enter button is enabled.
+    const enter = wrapper.find('[data-testid="pre-join-enter"]');
+    expect(enter.attributes('disabled')).toBeUndefined();
+    expect(wrapper.find('[data-testid="pre-join-guest"]').exists()).toBe(true);
+    // The big blocking auth prompt must NOT be shown just for joining.
+    expect(wrapper.find('[data-testid="pre-join-auth-fallback"]').exists()).toBe(false);
+  });
+
+  it('skips anonymous login when the user store already has a profile', async () => {
+    authMock.getMe.mockResolvedValue(null);
+    const wrapper = await mountView({ signedIn: true });
+    await flushPromises();
+    expect(authMock.anonymousLogin).not.toHaveBeenCalled();
+    const enter = wrapper.find('[data-testid="pre-join-enter"]');
+    expect(enter.attributes('disabled')).toBeUndefined();
+    expect(wrapper.find('[data-testid="pre-join-guest"]').exists()).toBe(true);
+  });
+
+  it('falls back to a Google prompt when anonymous login is disabled (404)', async () => {
+    authMock.getMe.mockResolvedValue(null);
+    const err = new Error('not found');
+    err.response = { status: 404 };
+    authMock.anonymousLogin.mockRejectedValue(err);
+    const wrapper = await mountView();
+    await flushPromises();
+    expect(wrapper.find('[data-testid="pre-join-boot-error"]').exists()).toBe(true);
+    const fallback = wrapper.find('[data-testid="pre-join-auth-fallback"]');
+    expect(fallback.exists()).toBe(true);
+    // The fallback prompt must only offer Google (no anonymous option),
+    // otherwise we'd loop on the same disabled endpoint.
+    expect(wrapper.find('[data-testid="auth-prompt-anonymous"]').exists()).toBe(false);
+    // Enter button must be disabled until they sign in with Google.
+    const enter = wrapper.find('[data-testid="pre-join-enter"]');
+    expect(enter.attributes('disabled')).toBeDefined();
   });
 
   it('surfaces Google button errors through the shared error display', async () => {
@@ -109,24 +122,12 @@ describe('PreJoinView auth', () => {
       { name: 'google', displayName: 'Google', enabled: true, startUrl: '/auth/google/start' },
     ]);
     authMock.getMe.mockResolvedValue(null);
+    authMock.anonymousLogin.mockRejectedValue(Object.assign(new Error('nope'), { response: { status: 404 } }));
     const wrapper = await mountView();
     await flushPromises();
     const googleBtn = wrapper.findComponent({ name: 'GoogleSignInButton' });
     googleBtn.vm.$emit('error', 'access_denied');
     await flushPromises();
     expect(wrapper.find('[data-testid="auth-prompt-error"]').text()).toBe('access_denied');
-  });
-
-  it('surfaces anonymous login errors through the shared error display', async () => {
-    authMock.getProviders.mockResolvedValue([
-      { name: 'anonymous', displayName: 'Invitado', enabled: true },
-    ]);
-    authMock.getMe.mockResolvedValue(null);
-    authMock.anonymousLogin.mockRejectedValue(new Error('boom'));
-    const wrapper = await mountView();
-    await flushPromises();
-    await wrapper.find('[data-testid="auth-prompt-anonymous"]').trigger('click');
-    await flushPromises();
-    expect(wrapper.find('[data-testid="auth-prompt-error"]').text()).toBe('boom');
   });
 });

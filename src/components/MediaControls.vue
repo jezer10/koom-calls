@@ -1,5 +1,8 @@
 <template>
-  <div class="w-full flex justify-center gap-4" data-testid="media-controls">
+  <div
+    class="w-full flex justify-center gap-4"
+    data-testid="media-controls"
+  >
     <button
       class="w-14 h-14 rounded-full text-white"
       :class="cameraOn ? 'bg-gray-600' : 'bg-red-500'"
@@ -7,7 +10,10 @@
       data-testid="toggle-camera"
       @click="$emit('toggle-camera')"
     >
-      <i class="fas" :class="cameraOn ? 'fa-video' : 'fa-video-slash'" />
+      <i
+        class="fas"
+        :class="cameraOn ? 'fa-video' : 'fa-video-slash'"
+      />
     </button>
     <button
       class="w-14 h-14 rounded-full text-white"
@@ -16,7 +22,10 @@
       data-testid="toggle-microphone"
       @click="$emit('toggle-microphone')"
     >
-      <i class="fas" :class="microphoneOn ? 'fa-microphone' : 'fa-microphone-slash'" />
+      <i
+        class="fas"
+        :class="microphoneOn ? 'fa-microphone' : 'fa-microphone-slash'"
+      />
     </button>
     <button
       class="w-14 h-14 rounded-full text-white bg-red-700"

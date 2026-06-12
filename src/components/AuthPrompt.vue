@@ -3,11 +3,19 @@
     class="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4"
     data-testid="auth-prompt"
   >
-    <h3 class="text-sm font-semibold text-gray-700">{{ title }}</h3>
-    <p v-if="description" class="text-xs text-gray-500">
+    <h3 class="text-sm font-semibold text-gray-700">
+      {{ title }}
+    </h3>
+    <p
+      v-if="description"
+      class="text-xs text-gray-500"
+    >
       {{ description }}
     </p>
-    <p v-if="!providers.length && !loadingProviders" class="text-xs text-gray-500">
+    <p
+      v-if="!providers.length && !loadingProviders"
+      class="text-xs text-gray-500"
+    >
       No hay providers de autenticación configurados.
     </p>
     <GoogleSignInButton
@@ -18,7 +26,7 @@
       @error="onAuthError"
     />
     <button
-      v-if="anonymousProvider"
+      v-if="showAnonymous && anonymousProvider"
       class="rounded-full bg-gray-200 px-4 py-2 text-sm font-medium"
       data-testid="auth-prompt-anonymous"
       :disabled="loading"
@@ -43,11 +51,12 @@ import GoogleSignInButton from './GoogleSignInButton.vue';
 import { anonymousLogin, getProviders } from '../api/auth.js';
 import { useUserStore } from '../stores/user.js';
 
-const props = defineProps({
+defineProps({
   title: { type: String, default: 'Iniciá sesión para entrar' },
   description: { type: String, default: '' },
   anonymousLabel: { type: String, default: 'Continuar como invitado' },
   returnTo: { type: String, default: '' },
+  showAnonymous: { type: Boolean, default: true },
 });
 const emit = defineEmits(['signed-in', 'error']);
 

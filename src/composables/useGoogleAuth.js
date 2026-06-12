@@ -46,11 +46,10 @@ export function useGoogleAuth() {
   let focusListener = null;
   let timeoutTimer = null;
   let graceTimer = null;
-  // Same-origin opener reference kept for documentation/future-proofing.
-  // We never touch `popup.closed` cross-origin (COOP blocks it) — we rely
-  // on `postMessage` from the callback page and on the parent window's
-  // `focus` event to detect manual closure.
-  let popupRef = null;
+  // We don't keep a reference to the popup window. Cross-origin popups
+  // (COOP) block reading `popup.closed`, so we rely on `postMessage` from
+  // the callback page and on the parent window's `focus` event to detect
+  // manual closure.
 
   function cleanupTimers() {
     if (timeoutTimer) {
@@ -74,7 +73,6 @@ export function useGoogleAuth() {
     status.value = 'error';
     errorMessage.value = message;
     cleanupTimers();
-    popupRef = null;
     detachFocusListener();
   }
 
@@ -82,7 +80,6 @@ export function useGoogleAuth() {
     status.value = 'idle';
     errorMessage.value = '';
     cleanupTimers();
-    popupRef = null;
     detachFocusListener();
   }
 
@@ -137,7 +134,6 @@ export function useGoogleAuth() {
       );
       return null;
     }
-    popupRef = popup;
     // Register the focus listener while the popup is in flight. When the
     // user closes the popup manually the parent window regains focus and
     // we can short-circuit the long safety-net timeout.
@@ -169,7 +165,6 @@ export function useGoogleAuth() {
     }
     detachFocusListener();
     cleanupTimers();
-    popupRef = null;
   });
 
   return {

@@ -11,14 +11,12 @@ const routes = [
     name: 'prejoin',
     component: PreJoinView,
     props: true,
-    meta: { requiresAuth: true },
   },
   {
     path: '/room/:roomId',
     name: 'room',
     component: RoomView,
     props: true,
-    meta: { requiresAuth: true },
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];
@@ -29,9 +27,10 @@ export const router = createRouter({
 });
 
 /**
- * Bouncer: if a guarded route is hit while the user has no session,
- * send them to `/?next=<target>` so HomeView can resume the original
- * destination once they sign in. Routes opt in via `meta.requiresAuth`.
+ * Bouncer: routes opt in via `meta.requiresAuth`. Pre-join and room are
+ * intentionally public: anyone with a room code can join. Routes that
+ * still need an authenticated user (e.g. an admin panel) set
+ * `meta.requiresAuth: true` and are redirected to `/?next=<target>`.
  */
 router.beforeEach((to) => {
   if (!to.meta?.requiresAuth) return true;

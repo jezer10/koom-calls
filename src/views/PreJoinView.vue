@@ -9,15 +9,45 @@
         class="flex w-full max-w-3xl flex-col gap-6 rounded-3xl bg-white p-6 shadow"
       >
         <header class="flex items-baseline justify-between">
-          <h2 class="text-2xl font-bold">Configurá tu audio y video</h2>
-          <span class="text-sm text-gray-500" data-testid="pre-join-room">
+          <h2 class="text-2xl font-bold">
+            Configurá tu audio y video
+          </h2>
+          <span
+            class="text-sm text-gray-500"
+            data-testid="pre-join-room"
+          >
             Sala: {{ props.roomId }}
           </span>
         </header>
 
+        <p
+          v-if="bootStatus === 'guest'"
+          class="text-sm text-gray-600"
+          data-testid="pre-join-guest"
+        >
+          Vas a entrar como invitado. El organizador te verá con un nombre generado.
+        </p>
+        <p
+          v-else-if="bootStatus === 'authenticating'"
+          class="text-sm text-gray-500"
+          data-testid="pre-join-boot"
+        >
+          Iniciando como invitado…
+        </p>
+        <p
+          v-else-if="bootStatus === 'failed'"
+          class="text-sm text-amber-700"
+          data-testid="pre-join-boot-error"
+        >
+          No se pudo iniciar como invitado automáticamente.
+        </p>
+
         <AuthPrompt
-          v-if="!user.isAuthenticated"
-          data-testid="pre-join-auth"
+          v-if="bootStatus === 'failed' && !user.isAuthenticated"
+          data-testid="pre-join-auth-fallback"
+          title="Iniciá sesión para continuar"
+          description="El ingreso como invitado no está disponible. Iniciá sesión con Google para entrar a la sala."
+          :show-anonymous="false"
           :return-to="returnTo"
           @signed-in="onSignedIn"
           @error="onAuthError"
@@ -45,7 +75,10 @@
         </div>
 
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label class="flex flex-col gap-1 text-sm" data-testid="camera-select-wrap">
+          <label
+            class="flex flex-col gap-1 text-sm"
+            data-testid="camera-select-wrap"
+          >
             <span class="font-medium">Cámara</span>
             <select
               v-model="selectedCameraId"
@@ -53,7 +86,10 @@
               data-testid="camera-select"
               @change="onCameraChange"
             >
-              <option v-if="cameras.length === 0" value="">
+              <option
+                v-if="cameras.length === 0"
+                value=""
+              >
                 No se detectaron cámaras
               </option>
               <option
@@ -65,7 +101,10 @@
               </option>
             </select>
           </label>
-          <label class="flex flex-col gap-1 text-sm" data-testid="microphone-select-wrap">
+          <label
+            class="flex flex-col gap-1 text-sm"
+            data-testid="microphone-select-wrap"
+          >
             <span class="font-medium">Micrófono</span>
             <select
               v-model="selectedMicrophoneId"
@@ -73,7 +112,10 @@
               data-testid="microphone-select"
               @change="onMicrophoneChange"
             >
-              <option v-if="microphones.length === 0" value="">
+              <option
+                v-if="microphones.length === 0"
+                value=""
+              >
                 No se detectaron micrófonos
               </option>
               <option
@@ -106,10 +148,10 @@
           <button
             class="rounded-full bg-red-900 px-5 py-2 font-bold text-white hover:bg-red-800"
             data-testid="pre-join-enter"
-            :disabled="!user.isAuthenticated"
+            :disabled="!canEnter"
             @click="enter"
           >
-            Entrar a la sala
+            {{ canEnter ? 'Entrar a la sala' : bootButtonLabel }}
           </button>
         </div>
       </div>
@@ -122,12 +164,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppNav from '../components/AppNav.vue';
 import AuthPrompt from '../components/AuthPrompt.vue';
+import { anonymousLogin } from '../api/auth.js';
 import { useDeviceList, useDevicePreview } from '../composables/useDeviceList.js';
 import { useUserStore } from '../stores/user.js';
 
 const props = defineProps({
   roomId: { type: String, required: true },
-  transport: { type: String, default: 'livekit' },
 });
 
 const route = useRoute();
@@ -137,15 +179,33 @@ const deviceList = useDeviceList();
 const preview = useDevicePreview();
 const returnTo = computed(() => route.fullPath);
 
+const bootStatus = ref('idle');
+const bootError = ref('');
+
+const canEnter = computed(() => {
+  if (bootStatus.value === 'authenticating') return false;
+  if (bootStatus.value === 'failed') return Boolean(user.isAuthenticated);
+  return Boolean(user.isAuthenticated);
+});
+
+const bootButtonLabel = computed(() => {
+  if (bootStatus.value === 'authenticating') return 'Iniciando…';
+  if (bootStatus.value === 'failed' && !user.isAuthenticated) {
+    return 'Iniciá sesión para entrar';
+  }
+  return 'Entrar a la sala';
+});
+
 function onSignedIn() {
   // The auth prompt already wrote the profile into the user store; this
   // is a hook for any future view-level side effects (telemetry, etc).
 }
 
 function onAuthError(message) {
-  // The auth prompt already displays the error. We log it here so the
-  // view-level `warning` channel stays free for non-auth issues.
-  if (message) console.warn('[pre-join] auth error:', message);
+  if (message) {
+    bootError.value = message;
+    console.warn('[pre-join] auth error:', message);
+  }
 }
 
 const {
@@ -200,29 +260,61 @@ async function onMicrophoneChange() {
   await startPreview();
 }
 
-onMounted(async () => {
-  startListening();
-  await refresh();
+async function ensureSession() {
   // Resolve the session via the user store; the httpOnly cookie makes
   // the backend the source of truth, not sessionStorage. AppNav kicks
   // off the same call at app boot, so this is usually a cache hit.
   await user.loadSession();
-  // Only request camera/mic once the user has a session, so we don't
-  // burn a permission prompt on someone who still has to authenticate.
+  if (user.isAuthenticated) {
+    bootStatus.value = 'guest';
+    return;
+  }
+  // No session yet. Auto-login silently as a guest so the rest of the
+  // flow (join call, get SFU token, signaling) can hit the protected
+  // endpoints with a valid session cookie.
+  bootStatus.value = 'authenticating';
+  try {
+    const profile = await anonymousLogin({ displayName: 'Guest' });
+    user.setProfile(profile);
+    bootStatus.value = 'guest';
+  } catch (err) {
+    const status = err?.response?.status;
+    // 404 means anonymous login is disabled in this environment
+    // (production-by-default). Fall back to a Google login prompt.
+    bootStatus.value = 'failed';
+    bootError.value =
+      err?.response?.data?.message ??
+      err?.message ??
+      'No se pudo iniciar como invitado';
+    if (status !== 404 && status !== 403) {
+      console.warn('[pre-join] anonymous login failed:', err);
+    }
+  }
+}
+
+onMounted(async () => {
+  startListening();
+  await refresh();
+  await ensureSession();
+  // Only request camera/mic once we know the user has (or just got) a
+  // session, so we don't burn a permission prompt on a still-anonymous
+  // visitor who might bounce.
   if (user.isAuthenticated) await startPreview();
   if (deviceError.value) {
     warningMessage.value = deviceError.value;
   }
 });
 
-// If the user signs in via anonymous login (no page reload), start the
-// preview as soon as the session is available. OAuth goes through a
-// hard reload via `returnTo`, so this branch mainly covers guest flow.
+// If the user signs in via Google from the fallback prompt, kick the
+// preview off and clear the failed state.
 watch(
   () => user.isAuthenticated,
   async (signedIn, wasSignedIn) => {
-    if (signedIn && !wasSignedIn && !preview.stream.value) {
-      await startPreview();
+    if (signedIn && !wasSignedIn) {
+      bootStatus.value = 'guest';
+      if (!preview.stream.value) {
+        await startPreview();
+      }
     }
   },
 );
@@ -237,12 +329,12 @@ function cancel() {
 }
 
 function enter() {
+  if (!canEnter.value) return;
   preview.stop();
   router.push({
     name: 'room',
     params: { roomId: props.roomId },
     query: {
-      transport: props.transport,
       videoDeviceId: selectedCameraId.value,
       audioDeviceId: selectedMicrophoneId.value,
     },
