@@ -16,7 +16,10 @@
           data-testid="device-panel-camera"
           @change="$emit('select-camera', $event.target.value)"
         >
-          <option v-if="cameras.length === 0" value="">
+          <option
+            v-if="cameras.length === 0"
+            value=""
+          >
             No hay cámaras
           </option>
           <option
@@ -42,7 +45,10 @@
           data-testid="device-panel-microphone"
           @change="$emit('select-microphone', $event.target.value)"
         >
-          <option v-if="microphones.length === 0" value="">
+          <option
+            v-if="microphones.length === 0"
+            value=""
+          >
             No hay micrófonos
           </option>
           <option

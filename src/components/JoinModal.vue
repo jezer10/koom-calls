@@ -4,26 +4,39 @@
     role="dialog"
     aria-modal="true"
   >
-    <div class="w-96 rounded bg-white p-6 shadow-lg space-y-4" data-testid="join-modal">
+    <div
+      class="w-96 rounded bg-white p-6 shadow-lg space-y-4"
+      data-testid="join-modal"
+    >
       <div class="flex justify-end">
         <button
           class="w-6 focus:outline-black"
           aria-label="Cerrar"
           @click="$emit('close')"
         >
-          <img :src="closeIcon" alt="close" />
+          <img
+            :src="closeIcon"
+            alt="close"
+          >
         </button>
       </div>
       <div class="flex flex-col items-center gap-2">
-        <label for="roomcode" class="text-xl font-bold">ROOM CODE</label>
+        <label
+          for="roomcode"
+          class="text-xl font-bold"
+        >ROOM CODE</label>
         <input
           id="roomcode"
           v-model="code"
           data-testid="room-code-input"
           class="w-full rounded-full border text-center text-xl font-medium focus:outline-none"
           placeholder="XXX-XXX-XXX"
-        />
-        <p v-if="error" class="text-sm text-red-600" data-testid="join-error">
+        >
+        <p
+          v-if="error"
+          class="text-sm text-red-600"
+          data-testid="join-error"
+        >
           {{ error }}
         </p>
       </div>

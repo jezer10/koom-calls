@@ -13,7 +13,7 @@ vi.mock('axios', () => ({
   },
 }));
 
-import { getIceServers, getSfuToken, getCall, createCall, listMyCalls } from '../calls.js';
+import { getIceServers, getSfuToken, getCall, createCall, listMyCalls, joinCall } from '../calls.js';
 import { apiClient, setStoredToken } from '../client.js';
 
 describe('api/calls', () => {
@@ -194,5 +194,36 @@ describe('api/calls', () => {
 
   it('getSfuToken throws when callId is missing', async () => {
     await expect(getSfuToken()).rejects.toThrow(/required/);
+  });
+
+  it('joinCall throws when callId is missing', async () => {
+    await expect(joinCall()).rejects.toThrow(/required/);
+  });
+
+  it('joinCall POSTs to /calls/:id/join and normalizes the response', async () => {
+    const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({
+      data: {
+        id: 'c-1',
+        roomId: 'ABC-DEF-GHI',
+        status: 'active',
+        participants: [{ userId: 'u-1', role: 'creator', status: 'joined' }],
+      },
+    });
+    const result = await joinCall('ABC-DEF-GHI');
+    expect(postSpy).toHaveBeenCalledWith('/calls/ABC-DEF-GHI/join');
+    expect(result).toEqual({
+      id: 'c-1',
+      roomId: 'ABC-DEF-GHI',
+      status: 'active',
+      participants: [{ userId: 'u-1', role: 'creator', status: 'joined' }],
+    });
+  });
+
+  it('joinCall falls back to an empty participants list when missing', async () => {
+    vi.spyOn(apiClient, 'post').mockResolvedValue({
+      data: { id: 'c-2', roomId: 'XYZ' },
+    });
+    const result = await joinCall('XYZ');
+    expect(result.participants).toEqual([]);
   });
 });

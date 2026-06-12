@@ -1,9 +1,15 @@
 <template>
   <nav class="h-16 w-full bg-red-900 flex items-center justify-between px-6">
-    <router-link to="/" class="text-3xl font-bold text-white tracking-wide">
+    <router-link
+      to="/"
+      class="text-3xl font-bold text-white tracking-wide"
+    >
       KOOM
     </router-link>
-    <div class="flex items-center gap-3 text-white" data-testid="app-nav-session">
+    <div
+      class="flex items-center gap-3 text-white"
+      data-testid="app-nav-session"
+    >
       <template v-if="session">
         <img
           v-if="session.picture"
@@ -12,7 +18,7 @@
           class="h-10 w-10 rounded-full object-cover border border-white/30"
           data-testid="app-nav-avatar"
           referrerpolicy="no-referrer"
-        />
+        >
         <div
           v-else
           class="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white"

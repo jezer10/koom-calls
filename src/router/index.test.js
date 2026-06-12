@@ -20,7 +20,7 @@ async function pushAndWait(to) {
   await router.isReady();
 }
 
-describe('router auth guard', () => {
+describe('router', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
   });
@@ -30,18 +30,24 @@ describe('router auth guard', () => {
     expect(router.currentRoute.value.name).toBe('home');
   });
 
-  it('redirects /prejoin/:roomId to home with ?next when not signed in', async () => {
+  // Pre-join and room are intentionally public: anyone with a room code
+  // can join. Authentication is only enforced by `meta.requiresAuth`,
+  // which those routes do not set.
+
+  it('allows /prejoin/:roomId without a session', async () => {
     await pushAndWait('/prejoin/ABC-DEF-GHI');
     const r = router.currentRoute.value;
-    expect(r.name).toBe('home');
-    expect(r.query.next).toBe('/prejoin/ABC-DEF-GHI');
+    expect(r.name).toBe('prejoin');
+    expect(r.params.roomId).toBe('ABC-DEF-GHI');
+    expect(r.query.next).toBeUndefined();
   });
 
-  it('redirects /room/:roomId to home with ?next when not signed in', async () => {
+  it('allows /room/:roomId without a session', async () => {
     await pushAndWait('/room/ABC-DEF-GHI');
     const r = router.currentRoute.value;
-    expect(r.name).toBe('home');
-    expect(r.query.next).toBe('/room/ABC-DEF-GHI');
+    expect(r.name).toBe('room');
+    expect(r.params.roomId).toBe('ABC-DEF-GHI');
+    expect(r.query.next).toBeUndefined();
   });
 
   it('allows /prejoin/:roomId when the user store has a profile', async () => {
@@ -63,5 +69,22 @@ describe('router auth guard', () => {
     });
     await pushAndWait('/room/ABC-DEF-GHI');
     expect(router.currentRoute.value.name).toBe('room');
+  });
+
+  it('still redirects routes that opt in via meta.requiresAuth', async () => {
+    router.addRoute({
+      path: '/admin',
+      name: 'admin',
+      component: { template: '<div/>' },
+      meta: { requiresAuth: true },
+    });
+    try {
+      await pushAndWait('/admin');
+      const r = router.currentRoute.value;
+      expect(r.name).toBe('home');
+      expect(r.query.next).toBe('/admin');
+    } finally {
+      router.removeRoute('admin');
+    }
   });
 });
