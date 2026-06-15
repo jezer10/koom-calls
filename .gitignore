@@ -10,3 +10,5 @@ tsconfig.tsbuildinfo
 # local env files (build args belong in .env.example)
 .env
 .env.*
+# override del docker compose (la plantilla vive en .env.docker-compose.example)
+.env.docker-compose

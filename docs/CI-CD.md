@@ -220,3 +220,72 @@ curl -fsS -H "Authorization: Bearer $TOKEN" \
 | Bundle > 500kB warning en build | `livekit-client` (~250kB) | Esperable, el ticket LBR-75 lo documenta; code-split pendiente |
 | `permission denied` en nginx del contenedor | Usuario `koom` no puede escribir `/var/cache/nginx` | Dockerfile actual usa `nginxinc/nginx-unprivileged` que resuelve esto |
 | Deploy falla con `unhealthy` 30s | El healthcheck interno apunta a `:8080` y el server escucha en otro puerto | El Dockerfile fija `PORT=8080` y el healthcheck usa `localhost:8080`; no cambiar `PORT` en `.env` |
+
+---
+
+## 11. Desarrollo local con docker compose + Nginx Proxy Manager
+
+El repo trae un `docker-compose.yml` pensado para correr el front **idéntico
+a producción** (mismo `nginx-unprivileged`, mismo puerto interno 8080)
+compartiendo red Docker con Nginx Proxy Manager. Esto es útil para
+testear el bundle compilado, validar el `nginx.conf` o reproducir el
+flujo de proxy inverso localmente.
+
+### Prerequisitos en el host
+
+- Docker + compose v2.
+- Nginx Proxy Manager corriendo (crea la red `npm-proxy` por defecto).
+- Si vas a hablar con el back localmente, el `back/docker-compose.yml`
+  debe estar levantado (crea la red `koom-net`).
+
+### Arranque
+
+```bash
+# 1. (Opcional) Copiá la plantilla de env
+cp .env.docker-compose.example .env.docker-compose
+# Editá VITE_API_BASE_URL si querés que el front apunte al back por nombre
+# de contenedor (http://koom-calls-server:8080) en vez de localhost.
+
+# 2. Bootstrap
+./scripts/npm-up.sh            # verifica redes y levanta el front
+./scripts/npm-up.sh --build    # fuerza rebuild de la imagen
+./scripts/npm-up.sh --recreate # recrea el contenedor (útil tras cambios
+                               # en networks)
+./scripts/npm-up.sh --debug    # además levanta `front-debug` con
+                               # 127.0.0.1:8081 → 8080 (sin pasar por NPM)
+```
+
+El script falla con mensaje accionable si falta NPM o el back, en vez
+de dejarte con un `Network … not found` críptico. Pasale
+`--create-networks` si querés generar las redes como placeholder vacío
+para iterar sin el resto del stack.
+
+### Configuración del proxy host en NPM
+
+| Campo | Valor |
+|---|---|
+| Domain Names | `koom.local` (o el dominio real) |
+| Scheme | `http` |
+| Forward Hostname / IP | `koom-calls-front` (nombre del contenedor) |
+| Forward Port | `8080` (puerto interno del contenedor) |
+| Websockets Support | **ON** (LiveKit usa WSS) |
+| Cache Assets | opcional |
+
+Verificá que el contenedor esté en la red compartida:
+
+```bash
+docker network inspect npm-proxy | grep koom-calls-front
+# debe listar al contenedor
+```
+
+### Diferencias con `pnpm dev`
+
+| | `pnpm dev` (Vite) | `docker compose up` (Nginx bundle) |
+|---|---|---|
+| HMR | ✅ | ❌ |
+| Paridad con prod | ❌ | ✅ |
+| Valida `nginx.conf` y `vue-tsc` build | solo manual | siempre |
+| Cuándo usar | dev de features | pre-merge, QA, troubleshooting |
+
+Recomendación: `pnpm dev` para el día a día, `docker compose` antes de
+abrir PR o tras tocar `nginx.conf` / `Dockerfile` / `vite.config.js`.
