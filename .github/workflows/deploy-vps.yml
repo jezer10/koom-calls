@@ -3,29 +3,31 @@ name: Deploy to VPS
 on:
   workflow_run:
     workflows: ["Publish Docker image"]
-    types:
-      - completed
-
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Image tag to deploy (e.g. latest, main-abc1234). Default: latest'
+        description: 'Image tag a desplegar (default: latest). Ej: main-abc1234'
         required: false
         default: 'latest'
 
+# Evita que dos deploys peleen por el mismo contenedor.
 concurrency:
   group: deploy-${{ github.event.repository.name }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     environment: production
-
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}
 
     steps:
       - name: Determine image tag
@@ -50,35 +52,26 @@ jobs:
             DEPLOY_DIR="${{ secrets.VPS_DEPLOY_DIR_FRONT || '$HOME/koom-calls-front' }}"
             IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.value }}"
 
-            mkdir -p "$DEPLOY_DIR"
             cd "$DEPLOY_DIR"
 
-            echo "::group::Logging in to GHCR"
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            echo "::endgroup::"
-
-            echo "::group::Pulling $IMAGE"
             docker pull "$IMAGE"
-            echo "::endgroup::"
-
-            echo "::group::Stopping previous container (if any)"
             docker rm -f koom-calls-front || true
-            echo "::endgroup::"
 
-            echo "::group::Ensuring koom-net network"
-            docker network inspect koom-net >/dev/null 2>&1 || docker network create koom-net
-            echo "::endgroup::"
+            # El front participa en dos redes:
+            #   koom-net  → habla con el back (koom-calls-server:8080)
+            #   npm-proxy → accesible por Nginx Proxy Manager por DNS interno
+            docker network inspect koom-net  >/dev/null 2>&1 || docker network create koom-net
+            docker network inspect npm-proxy >/dev/null 2>&1 || docker network create npm-proxy
 
-            echo "::group::Starting new container"
             docker run -d \
               --name koom-calls-front \
               --restart unless-stopped \
               --network koom-net \
+              --network npm-proxy \
               -p 8081:8080 \
               "$IMAGE"
-            echo "::endgroup::"
 
-            echo "::group::Waiting for health check"
             for i in $(seq 1 20); do
               if curl -fsS http://localhost:8081/health >/dev/null 2>&1; then
                 echo "Frontend healthy after ${i}s"
@@ -87,10 +80,9 @@ jobs:
               sleep 1
             done
             if ! curl -fsS http://localhost:8081/health >/dev/null 2>&1; then
-              echo "::error::Frontend did not become healthy within 20s"
+              echo "::error::Frontend unhealthy after 20s"
               docker logs --tail 50 koom-calls-front || true
               exit 1
             fi
-            echo "::endgroup::"
 
             echo "Deploy completed: $(docker inspect --format '{{.Image}}' koom-calls-front)"
