@@ -2,7 +2,7 @@
 # =============================================================================
 # koom-calls · bootstrap del front con Nginx Proxy Manager
 # =============================================================================
-# Verifica prerequisitos (NPM corriendo, redes koom-net y npm-proxy),
+# Verifica prerequisitos (NPM corriendo, red npm-proxy),
 # construye la imagen si hace falta, y levanta el front en modo detach.
 #
 # Uso:
@@ -104,8 +104,8 @@ fi
 if [[ "${VITE_API_BASE_URL:-}" == "http://localhost:8080" ]]; then
   warn "VITE_API_BASE_URL=http://localhost:8080 (default)"
   warn "  Dento del contenedor, 'localhost' apunta al front, no al back."
-  warn "  Si el back corre en el mismo host vía koom-net, preferí:"
-  warn "    VITE_API_BASE_URL=http://koom-calls-server:8080"
+  warn "  Para apuntar a un back en este host desde el contenedor:"
+  warn "    VITE_API_BASE_URL=http://host.docker.internal:8080"
 fi
 
 # ---- 3. redes requeridas -----------------------------------------------------
@@ -136,21 +136,12 @@ ensure_network() {
         echo "    O, para saltearte NPM en este momento, re-ejecutá con --create-networks"
         echo "    (queda como placeholder vacío; el front no será alcanzable vía proxy)"
         ;;
-      koom-net)
-        echo "    La crea back/docker-compose.yml al levantarlo. En el mismo host:"
-        echo "      cd ../back && docker compose up -d"
-        echo "    Si el back está en otro VPS, eliminá la red koom-net del"
-        echo "    front/docker-compose.yml y apuntá VITE_API_BASE_URL al dominio público."
-        echo
-        echo "    O, para saltearte el back en este momento, re-ejecutá con --create-networks"
-        ;;
     esac
     exit 2
   fi
 }
 
 ensure_network "npm-proxy" "Nginx Proxy Manager"
-ensure_network "koom-net"  "el stack del back (koom-calls-server)"
 
 # ---- 4. validar compose file -------------------------------------------------
 title "Validando docker-compose.yml"
@@ -214,7 +205,7 @@ title "Listo"
 echo
 info "Contenedor: koom-calls-front  ($HEALTH)"
 echo
-echo "  Acceso por red (desde NPM u otros contenedores en npm-proxy/koom-net):"
+echo "  Acceso por red (desde NPM u otros contenedores en npm-proxy):"
 echo "    http://koom-calls-front:8080"
 echo
 if (( DEBUG )); then

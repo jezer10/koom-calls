@@ -18,18 +18,11 @@ PR develop → main
         │      · pnpm build (vue-tsc + vite)
         │
         ▼
-.github/workflows/docker-publish.yml    (push a main)
-  · build linux/amd64
+.github/workflows/deploy.yml           (push a main o manual)
+  · build linux/amd64 + push a ghcr.io/jezer10/koom-calls
   · build args VITE_API_BASE_URL, VITE_SFU_URL, VITE_DEV_AUTH_ENABLED
-  · push a ghcr.io/jezer10/koom-calls
-        │
-        ▼
-.github/workflows/deploy-vps.yml       (workflow_run, auto)
-  · SSH a la VPS
-  · docker pull
-  · docker run --restart unless-stopped
-  · une redes koom-net y npm-proxy
-  · health check /health
+  · SSH a la VPS + pull + run + health check
+  (single job, contenedor en red npm-proxy)
 ```
 
 Imágenes publicadas con tags:
@@ -67,17 +60,17 @@ Imágenes publicadas con tags:
 ### Auto-proveídos
 
 - `GITHUB_TOKEN` — para `docker/login-action` contra `ghcr.io`. Requiere
-  `packages: write` (ya está en `docker-publish.yml`).
+  `packages: write` (ya está en `deploy.yml`).
 
 > **Importante sobre `VITE_API_BASE_URL`:** como se inyecta al compilar,
 > cambiar el secret **no afecta imágenes ya publicadas** — hay que
-> re-disparar `docker-publish.yml`. Si lo cambiaste después de un push
+> re-disparar `deploy.yml`. Si lo cambiaste después de un push
 > a `main`, corré el workflow manualmente con `workflow_dispatch`.
 
 ## 3. Variables en la VPS: no requiere `.env`
 
 A diferencia del back, **el front no necesita `.env` en la VPS**: las
-variables `VITE_*` se compilan dentro del bundle en `docker-publish.yml`
+variables `VITE_*` se compilan dentro del bundle en `deploy.yml`
 y la imagen resultante es self-contained.
 
 Si más adelante agregás runtime config (ej. un endpoint de health
@@ -101,11 +94,8 @@ docker run -d --name koom-calls-front-test \
 curl -fsS http://localhost:8081/health
 docker rm -f koom-calls-front-test
 
-# 3. Las redes koom-net y npm-proxy se crean automáticamente en el
-#    primer deploy vía SSH. Si querés crearlas antes:
-#    docker network create koom-net
-#    docker network create npm-proxy
-#    (Nginx Proxy Manager usualmente ya creó npm-proxy.)
+# 3. La red npm-proxy se crea automáticamente en el primer deploy vía SSH.
+#    (Nginx Proxy Manager usualmente ya la creó.)
 ```
 
 ## 5. Procedimiento de release
@@ -113,9 +103,8 @@ docker rm -f koom-calls-front-test
 ```bash
 # 1. PR de develop → main en koom-calls
 # 2. CI corre y debe pasar (gate de calidad).
-# 3. Merge. Se disparan en orden:
-#    a. docker-publish.yml → build con VITE_* secrets + push a ghcr.io
-#    b. deploy-vps.yml       → SSH + pull + restart + health check
+# 3. Merge. Se dispara:
+#    a. deploy.yml           → build con VITE_* secrets + push + SSH + pull + restart + health check
 # 4. Verificar en la VPS:
 ssh deploy@VPS_HOST "docker ps && curl -fsS http://localhost:8081/health"
 # 5. (Opcional) Tag formal para auditoría / rollback:
@@ -129,7 +118,6 @@ Repo → Actions → "Deploy to VPS" → Run workflow.
 
 - **Default tag:** `latest` (más reciente publicado en GHCR).
 - **Tag específico:** pegar `main-abc1234` o `v1.0.0` en el input `tag`.
-- No hay input `require_env` (no aplica al front — ver §3).
 
 ## 7. Rollback de emergencia vía SSH
 
@@ -140,7 +128,6 @@ docker rm -f koom-calls-front
 docker run -d \
   --name koom-calls-front \
   --restart unless-stopped \
-  --network koom-net \
   --network npm-proxy \
   -p 8081:8080 \
   ghcr.io/jezer10/koom-calls:main-<sha-anterior>
@@ -180,50 +167,43 @@ docker logs --tail 100 koom-calls-front
   seleccionar `Lint, test, build` como required. Sin esto el check es
   solo informativo y no bloquea merges rotos.
 
-### `.github/workflows/docker-publish.yml`
+### `.github/workflows/deploy.yml`
 
-- Trigger: push a `main`, manual (`workflow_dispatch`).
-- `concurrency: publish-<repo>-<ref>` con `cancel-in-progress: true` —
-  evita doble publish si dos eventos se solapan.
-- `permissions: contents: read, packages: write`.
-- Build: docker buildx single-arch `linux/amd64`, GHA cache `mode=min`.
-- Build args desde secrets:
-  - `VITE_API_BASE_URL` (requerido en prod, default `http://localhost:8080` para dev).
-  - `VITE_SFU_URL` (opcional, default `''`).
-  - `VITE_DEV_AUTH_ENABLED` (opcional, default `true`).
-- Push: `ghcr.io/jezer10/koom-calls` con tags:
-  - `main` (branch ref)
-  - `<short-sha>`
-  - `latest` (solo si `github.ref == 'refs/heads/main'`)
-- **Single-arch intencional:** la VPS es x86. Para añadir `linux/arm64`,
-  cambiar `platforms:` en el workflow.
-
-### `.github/workflows/deploy-vps.yml`
-
-- Trigger: tras `workflow_run` exitoso de docker-publish, o manual.
-- Inputs de `workflow_dispatch`:
-  - `tag` (default `latest`): qué tag de la imagen desplegar.
+- Trigger: push a `main`, manual con input `tag` (default `latest`).
 - `concurrency: deploy-<repo>` con `cancel-in-progress: true`.
 - `environment: production` (GitHub Environments) — opcionalmente con
   reviewers requeridos en la UI.
-- `permissions: contents: read`.
+- `permissions: contents: read, packages: write`.
 - Steps:
-  1. Determina tag (input manual o `latest`).
-  2. `appleboy/ssh-action@v1` con secretos VPS.
-  3. Script remoto (`set -euo pipefail`):
+  1. Checkout + `docker/setup-buildx-action@v3` + `docker/login-action@v3`
+     contra `ghcr.io` con `GITHUB_TOKEN`.
+  2. `docker/metadata-action@v5` con tags:
+     - `main` (branch ref)
+     - `<short-sha>`
+     - `latest` (solo si `github.ref == 'refs/heads/main'`)
+  3. `docker/build-push-action@v6` con `platforms: linux/amd64`,
+     GHA cache `mode=min`, build args desde secrets:
+     - `VITE_API_BASE_URL` (requerido en prod, default `http://localhost:8080` para dev).
+     - `VITE_SFU_URL` (opcional, default `''`).
+     - `VITE_DEV_AUTH_ENABLED` (opcional, default `true`).
+     Push a `ghcr.io/jezer10/koom-calls`.
+  4. `appleboy/ssh-action@v1` con secretos VPS.
+  5. Script remoto (`set -euo pipefail`):
      - `cd $DEPLOY_DIR` (default `~/koom-calls-front`).
      - `docker login ghcr.io` con `GITHUB_TOKEN`.
      - `docker pull <image>`.
      - `docker rm -f koom-calls-front` (best-effort).
-     - Crea redes `koom-net` y `npm-proxy` si no existen.
-     - `docker run -d --restart unless-stopped --network koom-net --network npm-proxy -p 8081:8080 <image>`.
+     - Crea red `npm-proxy` si no existe.
+     - `docker run -d --restart unless-stopped --network npm-proxy -p 8081:8080 <image>`.
      - Loop de health check hasta 20s.
      - Falla con `docker logs --tail 50` si no sana.
+- **Single-arch intencional:** la VPS es x86. Para añadir `linux/arm64`,
+  cambiar `platforms:` en el workflow.
 
-> **No hay `require_env`:** el front no usa `.env` en la VPS. Si en el
-> futuro agregás runtime config, seguí el patrón del back
-> (`back/.github/workflows/deploy-vps.yml`) con un input opcional
-> `require_env` y un `RUN_ARGS` que condicione `--env-file`.
+> **No hay `.env` en la VPS:** el front se compila con los `VITE_*` baked
+> en el bundle. Si en el futuro agregás runtime config, seguí el patrón
+> del back (`back/.github/workflows/deploy.yml`) con un hard-fail de
+> `.env` y `--env-file` en el `docker run`.
 
 ## 9. Verificación end-to-end
 
@@ -273,19 +253,26 @@ flujo de proxy inverso localmente.
 
 - Docker + compose v2.
 - Nginx Proxy Manager corriendo (crea la red `npm-proxy` por defecto).
-- Si vas a hablar con el back localmente, el `back/docker-compose.yml`
-  debe estar levantado (crea la red `koom-net`).
+- El back **no comparte red Docker con el front** (se despliegan en
+  entornos separados). Para hablar con un back local, exportá
+  `VITE_API_BASE_URL=http://host.docker.internal:8080` (Docker Desktop
+  lo resuelve gratis; en Linux podés necesitar
+  `extra_hosts: ["host.docker.internal:host-gateway"]` en el
+  `docker-compose.yml`). La alternativa más simple es usar
+  `pnpm dev` (Vite en :5173 + Nest en :8080) sin Docker.
 
 ### Arranque
 
 ```bash
 # 1. (Opcional) Copiá la plantilla de env
 cp .env.docker-compose.example .env.docker-compose
-# Editá VITE_API_BASE_URL si querés que el front apunte al back por nombre
-# de contenedor (http://koom-calls-server:8080) en vez de localhost.
+# Editá VITE_API_BASE_URL: apuntá al back en este host vía
+# http://host.docker.internal:8080 (docker compose) o http://localhost:8080
+# (pnpm dev). NO uses http://koom-calls-server:8080 — back y front ya
+# no comparten red Docker.
 
 # 2. Bootstrap
-./scripts/npm-up.sh            # verifica redes y levanta el front
+./scripts/npm-up.sh            # verifica red y levanta el front
 ./scripts/npm-up.sh --build    # fuerza rebuild de la imagen
 ./scripts/npm-up.sh --recreate # recrea el contenedor (útil tras cambios
                                # en networks)
@@ -293,9 +280,9 @@ cp .env.docker-compose.example .env.docker-compose
                                # 127.0.0.1:8081 → 8080 (sin pasar por NPM)
 ```
 
-El script falla con mensaje accionable si falta NPM o el back, en vez
-de dejarte con un `Network … not found` críptico. Pasale
-`--create-networks` si querés generar las redes como placeholder vacío
+El script falla con mensaje accionable si falta NPM, en vez de
+dejarte con un `Network … not found` críptico. Pasale
+`--create-networks` si querés generar la red como placeholder vacío
 para iterar sin el resto del stack.
 
 ### Configuración del proxy host en NPM
