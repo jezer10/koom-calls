@@ -1,95 +1,28 @@
-# =============================================================================
-# koom-calls · compose del front con red compartida para Nginx Proxy Manager
-# =============================================================================
-# Este front convive con Nginx Proxy Manager (jc21/nginx-proxy-manager) en el
-# mismo host. Se conecta a la red `npm-proxy` que NPM crea por defecto; así
-# NPM puede hacer proxy_pass a http://koom-calls-front:8080 (DNS interno).
-#
-# Se une además a `koom-net` para hablarle al api del back cuando este vive
-# en el mismo host. Si el back está en otro VPS, eliminá el bloque `koom-net`
-# y apuntá VITE_API_BASE_URL al dominio público del back.
-#
-# IMPORTANTE: no se publica `ports:` — el acceso público es exclusivo de NPM.
-# Para debug local sin NPM, activá el profile `debug` (levantá también
-# `front-debug` con 127.0.0.1:8081 → 8080):
-#   docker compose --profile debug up -d
-#   curl -fsS http://127.0.0.1:8081/health
-#
-# Uso normal (vía NPM):
-#   docker compose up -d
-#
-# Si NPM no está corriendo todavía, usá el bootstrap:
-#   ./scripts/npm-up.sh
-# =============================================================================
+name: koom-front
 
-# Anchor para no duplicar build/networks/healthcheck entre los dos servicios.
 x-front-common: &front-common
   build:
     context: .
     dockerfile: Dockerfile
     args:
-      # Defaults iguales a .env.example; override vía .env en este dir
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
       VITE_SFU_URL: ${VITE_SFU_URL:-}
       VITE_DEV_AUTH_ENABLED: ${VITE_DEV_AUTH_ENABLED:-true}
   image: koom-calls-front:local
-  restart: unless-stopped
-  networks:
-    npm-proxy:
-      aliases:
-        - koom-calls-front   # NPM resuelve por este nombre en la red
-    koom-net:
-      aliases:
-        - koom-calls-front
-  healthcheck:
-    test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/health || exit 1"]
-    interval: 30s
-    timeout: 5s
-    retries: 3
-    start_period: 10s
+  networks: [npm-proxy, koom-net]
 
 services:
   front:
     <<: *front-common
     container_name: koom-calls-front
 
-  # Variante con puerto publicado (solo para debug local sin pasar por NPM).
-  # Convive con `front` (mismo image, distinto container_name y nombre DNS
-  # de red). Levantá con:
-  #   docker compose --profile debug up -d
   front-debug:
     <<: *front-common
-    profiles: ["debug"]
+    profiles: ['debug']
     container_name: koom-calls-front-debug
-    restart: "no"
-    networks:
-      npm-proxy:
-        aliases:
-          - koom-calls-front-debug
-      koom-net:
-        aliases:
-          - koom-calls-front-debug
-    ports:
-      # Bind a loopback para no exponer al exterior accidentalmente.
-      - "127.0.0.1:8081:8080"
-
-# No depend_on de NPM ni del back: el front no necesita que estén sanos
-# para arrancar. Si están caídos, simplemente las requests del navegador
-# fallarán con un error claro (visible en la pestaña Network del devtools).
+    restart: 'no'
+    ports: ['127.0.0.1:8081:8080']
 
 networks:
-  npm-proxy:
-    # Red que crea y mantiene el contenedor de Nginx Proxy Manager.
-    # La declaramos external para que `docker compose up` NO intente crearla.
-    # Si NPM todavía no está corriendo, este compose fallará: arrancá NPM
-    # primero, o usá ./scripts/npm-up.sh --create-networks para crear un
-    # placeholder.
-    external: true
-    name: npm-proxy
-
-  koom-net:
-    # Red del back (back/docker-compose.yml). Externa también.
-    # Si el back está en otro VPS, podés eliminar este bloque entero y
-    # declarar `extra_hosts` para resolver el back por su dominio público.
-    external: true
-    name: koom-net
+  npm-proxy: { external: true, name: npm-proxy }
+  koom-net: { external: true, name: koom-net }
