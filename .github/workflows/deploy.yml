@@ -88,16 +88,12 @@ jobs:
             docker pull "$IMAGE"
             docker rm -f koom-calls-front || true
 
-            # El front participa en dos redes:
-            #   koom-net  → habla con el back (koom-calls-server:8080)
-            #   npm-proxy → expuesto por Nginx Proxy Manager
-            docker network inspect koom-net  >/dev/null 2>&1 || docker network create koom-net
+            # El front está en npm-proxy, expuesto por Nginx Proxy Manager.
             docker network inspect npm-proxy >/dev/null 2>&1 || docker network create npm-proxy
 
             docker run -d \
               --name koom-calls-front \
               --restart unless-stopped \
-              --network koom-net \
               --network npm-proxy \
               -p 8081:8080 \
               "$IMAGE"

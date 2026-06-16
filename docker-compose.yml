@@ -9,7 +9,7 @@ x-front-common: &front-common
       VITE_SFU_URL: ${VITE_SFU_URL:-}
       VITE_DEV_AUTH_ENABLED: ${VITE_DEV_AUTH_ENABLED:-true}
   image: koom-calls-front:local
-  networks: [npm-proxy, koom-net]
+  networks: [npm-proxy]
 
 services:
   front:
@@ -25,4 +25,3 @@ services:
 
 networks:
   npm-proxy: { external: true, name: npm-proxy }
-  koom-net: { external: true, name: koom-net }
