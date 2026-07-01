@@ -80,22 +80,16 @@ jobs:
           script: |
             set -euo pipefail
             DEPLOY_DIR="${{ secrets.VPS_DEPLOY_DIR_FRONT || '$HOME/koom-calls-front' }}"
-            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.value }}"
+            export FRONT_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.value }}"
 
             cd "$DEPLOY_DIR"
 
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            docker pull "$IMAGE"
-            docker rm -f koom-calls-front || true
+            docker pull "$FRONT_IMAGE"
 
-            # El front está en npm-proxy, expuesto por Nginx Proxy Manager.
             docker network inspect npm-proxy >/dev/null 2>&1 || docker network create npm-proxy
 
-            docker run -d \
-              --name koom-calls-front \
-              --restart unless-stopped \
-              --network npm-proxy \
-              "$IMAGE"
+            docker compose up -d --pull never
 
             for i in $(seq 1 20); do
               docker exec koom-calls-front curl -fsS http://localhost:8080/health >/dev/null 2>&1 && { echo "Frontend healthy after ${i}s"; exit 0; }
