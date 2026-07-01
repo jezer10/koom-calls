@@ -1,0 +1,27 @@
+name: koom-front
+
+x-front-common: &front-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+      VITE_SFU_URL: ${VITE_SFU_URL:-}
+      VITE_DEV_AUTH_ENABLED: ${VITE_DEV_AUTH_ENABLED:-true}
+  image: koom-calls-front:local
+  networks: [npm-proxy]
+
+services:
+  front:
+    <<: *front-common
+    container_name: koom-calls-front
+
+  front-debug:
+    <<: *front-common
+    profiles: ['debug']
+    container_name: koom-calls-front-debug
+    restart: 'no'
+    ports: ['127.0.0.1:8081:8080']
+
+networks:
+  npm-proxy: { external: true, name: npm-proxy }

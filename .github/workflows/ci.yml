@@ -3,44 +3,33 @@ name: CI
 on:
   push:
     branches: [main, develop]
+    paths-ignore: ['docs/**', '*.md']
   pull_request:
     branches: [main, develop]
+    paths-ignore: ['docs/**', '*.md']
   workflow_dispatch:
 
 concurrency:
-  # Cancel in-progress solo en PRs: un force-push cancela el run anterior
-  # de la misma PR. En push a main/develop dejamos que ambos runs terminen
-  # para no perder historia.
-  group: ci-${{ github.event.repository.name }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
   ci:
-    name: Lint, test, build
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node 22
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-
-      - name: Enable corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm lint:check
-
-      - name: Test
-        run: pnpm test
-
-      - name: Build
-        run: pnpm build
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint:check
+      - run: pnpm test
+      - run: pnpm build
