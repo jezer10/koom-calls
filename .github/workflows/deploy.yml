@@ -91,10 +91,12 @@ jobs:
 
             docker compose up -d --pull never
 
-            for i in $(seq 1 20); do
-              docker exec koom-calls-front curl -fsS http://localhost:8080/health >/dev/null 2>&1 && { echo "Frontend healthy after ${i}s"; exit 0; }
-              sleep 1
+            for i in $(seq 1 30); do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' koom-calls-front 2>/dev/null || echo "none")
+              [ "$STATUS" = "healthy" ] && { echo "Frontend healthy after ${i}s"; exit 0; }
+              [ "$STATUS" = "unhealthy" ] && break
+              sleep 2
             done
-            echo "::error::Frontend unhealthy after 20s"
+            echo "::error::Frontend unhealthy"
             docker logs --tail 50 koom-calls-front || true
             exit 1
