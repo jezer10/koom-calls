@@ -11,6 +11,14 @@ export function useMediaDevices() {
   const microphoneOn = ref(false);
   const error = ref(null);
 
+  function isMissingDeviceError(err) {
+    return (
+      err?.name === 'NotFoundError' ||
+      err?.name === 'OverconstrainedError' ||
+      err?.message === 'Requested device not found'
+    );
+  }
+
   /**
    * Build a getUserMedia constraints object from the requested video/audio
    * flags and the explicit deviceIds selected in the UI.
@@ -46,7 +54,18 @@ export function useMediaDevices() {
         throw new Error('mediaDevices.getUserMedia is not available');
       }
       const constraints = buildConstraints(opts);
-      const next = await navigator.mediaDevices.getUserMedia(constraints);
+      let next;
+      try {
+        next = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        const shouldRetry =
+          isMissingDeviceError(err) && (opts.videoDeviceId || opts.audioDeviceId);
+        if (!shouldRetry) throw err;
+        next = await navigator.mediaDevices.getUserMedia({
+          video: opts.video ?? true,
+          audio: opts.audio ?? true,
+        });
+      }
       stop();
       stream.value = next;
       cameraOn.value = next.getVideoTracks().length > 0;
@@ -79,7 +98,13 @@ export function useMediaDevices() {
       videoDeviceId: video ? deviceId : undefined,
       audioDeviceId: audio ? deviceId : undefined,
     });
-    const next = await navigator.mediaDevices.getUserMedia(constraints);
+    let next;
+    try {
+      next = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      if (!isMissingDeviceError(err)) throw err;
+      next = await navigator.mediaDevices.getUserMedia({ video, audio });
+    }
     const newTrack = audio
       ? next.getAudioTracks()[0] ?? null
       : next.getVideoTracks()[0] ?? null;

@@ -232,13 +232,21 @@ watch(preview.stream, (next) => {
 });
 
 async function startPreview() {
+  const wantsVideo = cameras.value.length > 0;
+  const wantsAudio = microphones.value.length > 0;
+  if (!wantsVideo && !wantsAudio) {
+    warningMessage.value =
+      'No hay cámara ni micrófono disponibles. Podés entrar como oyente.';
+    preview.stop();
+    return;
+  }
   const stream = await preview.start({
-    videoDeviceId: selectedCameraId.value || undefined,
-    audioDeviceId: selectedMicrophoneId.value || undefined,
+    videoDeviceId: wantsVideo ? selectedCameraId.value || undefined : undefined,
+    audioDeviceId: wantsAudio ? selectedMicrophoneId.value || undefined : undefined,
   });
   if (!stream) {
     warningMessage.value =
-      'No se pudo acceder a la cámara o al micrófono. Podés entrar igual y configurar más tarde.';
+      'No se pudo acceder a la cámara o al micrófono. Podés entrar igual como oyente.';
     return;
   }
   const hasVideo = stream.getVideoTracks().length > 0;

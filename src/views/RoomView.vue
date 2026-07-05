@@ -28,6 +28,12 @@
           :label="entry.label"
           class="max-w-xl flex-1"
         />
+        <RemoteAudioSink
+          v-for="entry in remoteEntries"
+          :key="`${entry.key}-audio`"
+          :attachment="entry.audioAttachment"
+          :sink-id="selectedSpeakerId"
+        />
         <p
           v-if="!hasAnyVideo"
           class="text-gray-500"
@@ -46,11 +52,19 @@
       <DeviceSettingsPanel
         :cameras="cameras"
         :microphones="microphones"
+        :speakers="speakers"
         :selected-camera-id="selectedCameraId"
         :selected-microphone-id="selectedMicrophoneId"
+        :selected-speaker-id="selectedSpeakerId"
+        :selected-speaker-label="selectedSpeakerLabel"
+        :show-speakers="speakerSelectionSupported"
+        :can-pick-speaker="speakerPickerSupported"
         :disabled="!hasLocalStream"
+        :speaker-disabled="false"
         @select-camera="onSelectCamera"
         @select-microphone="onSelectMicrophone"
+        @select-speaker="onSelectSpeaker"
+        @pick-speaker="onPickSpeaker"
       />
       <p
         v-if="errorMessage"
@@ -76,6 +90,7 @@ import { useRoute, useRouter } from 'vue-router';
 import AppNav from '../components/AppNav.vue';
 import DeviceSettingsPanel from '../components/DeviceSettingsPanel.vue';
 import MediaControls from '../components/MediaControls.vue';
+import RemoteAudioSink from '../components/RemoteAudioSink.vue';
 import VideoTile from '../components/VideoTile.vue';
 import { createLocalTracks } from 'livekit-client';
 import { useSignaling } from '../composables/useSignaling.js';
@@ -106,13 +121,19 @@ let wsToken = null;
 const {
   cameras,
   microphones,
+  speakers,
   selectedCameraId,
   selectedMicrophoneId,
+  selectedSpeakerId,
+  selectedSpeakerLabel,
   refresh: refreshDevices,
   startListening: startDeviceListener,
   stopListening: stopDeviceListener,
+  supportsSpeakerSelection,
   selectCamera,
   selectMicrophone,
+  selectSpeaker,
+  pickSpeaker,
 } = deviceList;
 
 const cameraOn = ref(false);
@@ -148,6 +169,11 @@ const remoteEntries = computed(() => {
 const hasAnyVideo = computed(
   () => hasLocalVideo.value || remoteEntries.value.length > 0,
 );
+const speakerSelectionSupported = computed(() => {
+  if (typeof HTMLMediaElement === 'undefined') return false;
+  return typeof HTMLMediaElement.prototype.setSinkId === 'function';
+});
+const speakerPickerSupported = computed(() => supportsSpeakerSelection());
 
 onBeforeUnmount(() => {
   teardown();
@@ -164,14 +190,23 @@ async function bootstrap() {
   const initialAudioId = route.query.audioDeviceId;
   if (initialVideoId) selectCamera(String(initialVideoId));
   if (initialAudioId) selectMicrophone(String(initialAudioId));
-  refreshDevices();
+  await refreshDevices();
 
   let stream = null;
   try {
-    stream = await media.start({
-      videoDeviceId: selectedCameraId.value || undefined,
-      audioDeviceId: selectedMicrophoneId.value || undefined,
-    });
+    const wantsVideo = cameras.value.length > 0;
+    const wantsAudio = microphones.value.length > 0;
+    if (wantsVideo || wantsAudio) {
+      stream = await media.start({
+        video: wantsVideo,
+        audio: wantsAudio,
+        videoDeviceId: wantsVideo ? selectedCameraId.value || undefined : undefined,
+        audioDeviceId: wantsAudio ? selectedMicrophoneId.value || undefined : undefined,
+      });
+    } else {
+      errorMessage.value =
+        'Entraste como oyente porque no hay cámara ni micrófono disponibles en este equipo.';
+    }
   } catch (err) {
     errorMessage.value =
       err?.message ??
@@ -286,6 +321,18 @@ async function onSelectMicrophone(deviceId) {
     return;
   }
   microphoneOn.value = true;
+}
+
+function onSelectSpeaker(deviceId) {
+  selectSpeaker(deviceId);
+}
+
+async function onPickSpeaker() {
+  try {
+    await pickSpeaker();
+  } catch (err) {
+    errorMessage.value = err?.message ?? 'No se pudo elegir la salida de audio';
+  }
 }
 
 async function teardown() {

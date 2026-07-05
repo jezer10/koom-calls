@@ -30,12 +30,22 @@ function tryOnUnmount(fn) {
 export function useDeviceList() {
   const cameras = ref([]);
   const microphones = ref([]);
+  const speakers = ref([]);
   const selectedCameraId = ref('');
   const selectedMicrophoneId = ref('');
+  const selectedSpeakerId = ref('');
+  const selectedSpeakerLabel = ref('');
   const ready = ref(false);
   const error = ref(null);
 
   let listening = false;
+
+  function syncSelection(selected, devices) {
+    const current = selected.value;
+    const hasCurrent = current && devices.some((device) => device.deviceId === current);
+    if (hasCurrent) return;
+    selected.value = devices[0]?.deviceId ?? '';
+  }
 
   async function refresh() {
     if (!navigator.mediaDevices?.enumerateDevices) {
@@ -46,13 +56,11 @@ export function useDeviceList() {
       const devices = await navigator.mediaDevices.enumerateDevices();
       cameras.value = devices.filter((d) => d.kind === 'videoinput');
       microphones.value = devices.filter((d) => d.kind === 'audioinput');
+      speakers.value = devices.filter((d) => d.kind === 'audiooutput');
 
-      if (!selectedCameraId.value && cameras.value[0]?.deviceId) {
-        selectedCameraId.value = cameras.value[0].deviceId;
-      }
-      if (!selectedMicrophoneId.value && microphones.value[0]?.deviceId) {
-        selectedMicrophoneId.value = microphones.value[0].deviceId;
-      }
+      syncSelection(selectedCameraId, cameras.value);
+      syncSelection(selectedMicrophoneId, microphones.value);
+      syncSelection(selectedSpeakerId, speakers.value);
       ready.value = true;
       error.value = null;
     } catch (err) {
@@ -82,20 +90,49 @@ export function useDeviceList() {
     selectedMicrophoneId.value = deviceId;
   }
 
+  function selectSpeaker(deviceId) {
+    selectedSpeakerId.value = deviceId;
+    const selected = speakers.value.find((device) => device.deviceId === deviceId);
+    selectedSpeakerLabel.value = selected?.label ?? '';
+  }
+
+  function supportsSpeakerSelection() {
+    return typeof navigator.mediaDevices?.selectAudioOutput === 'function';
+  }
+
+  async function pickSpeaker() {
+    if (!supportsSpeakerSelection()) {
+      throw new Error('mediaDevices.selectAudioOutput is not available');
+    }
+    const device = await navigator.mediaDevices.selectAudioOutput();
+    selectedSpeakerId.value = device.deviceId ?? '';
+    selectedSpeakerLabel.value = device.label ?? '';
+    if (!speakers.value.some((speaker) => speaker.deviceId === device.deviceId)) {
+      speakers.value = [...speakers.value, device];
+    }
+    return device;
+  }
+
   tryOnUnmount(stopListening);
 
   return {
     cameras,
     microphones,
+    speakers,
     selectedCameraId,
     selectedMicrophoneId,
+    selectedSpeakerId,
+    selectedSpeakerLabel,
     ready,
     error,
     refresh,
     startListening,
     stopListening,
+    supportsSpeakerSelection,
     selectCamera,
     selectMicrophone,
+    selectSpeaker,
+    pickSpeaker,
   };
 }
 
