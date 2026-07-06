@@ -155,7 +155,14 @@ export function useDevicePreview() {
     if (!navigator.mediaDevices?.getUserMedia) return null;
     const constraints = {
       video: videoDeviceId ? { deviceId: { exact: videoDeviceId } } : false,
-      audio: audioDeviceId ? { deviceId: { exact: audioDeviceId } } : false,
+      audio: audioDeviceId
+        ? {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            deviceId: { exact: audioDeviceId },
+          }
+        : false,
     };
     try {
       const next = await navigator.mediaDevices.getUserMedia(constraints);

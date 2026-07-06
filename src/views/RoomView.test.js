@@ -147,7 +147,10 @@ vi.mock('livekit-client', () => ({
     { kind: 'video', sid: 'LV-1', attach: vi.fn(), detach: vi.fn(), stop: vi.fn() },
     { kind: 'audio', sid: 'LA-1', attach: vi.fn(), detach: vi.fn(), stop: vi.fn() },
   ]),
-  Track: { Kind: { Video: 'video', Audio: 'audio' } },
+  Track: {
+    Kind: { Video: 'video', Audio: 'audio' },
+    Source: { Camera: 'camera', Microphone: 'microphone', ScreenShare: 'screen_share' },
+  },
   RoomEvent: {
     Connected: 'connected',
     Disconnected: 'disconnected',

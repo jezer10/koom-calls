@@ -91,7 +91,12 @@ describe('useMediaDevices', () => {
     expect(result).toBe(stream);
     expect(mockedGetUserMedia()).toHaveBeenNthCalledWith(1, {
       video: false,
-      audio: { deviceId: { exact: 'missing-mic' } },
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        deviceId: { exact: 'missing-mic' },
+      },
     });
     expect(mockedGetUserMedia()).toHaveBeenNthCalledWith(2, {
       video: false,

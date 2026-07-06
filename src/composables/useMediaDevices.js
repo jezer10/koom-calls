@@ -41,9 +41,12 @@ export function useMediaDevices() {
         : true
       : false;
     const a = audio
-      ? audioDeviceId
-        ? { deviceId: { exact: audioDeviceId } }
-        : true
+      ? {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          ...(audioDeviceId ? { deviceId: { exact: audioDeviceId } } : {}),
+        }
       : false;
     return { video: v, audio: a };
   }

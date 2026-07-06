@@ -18,6 +18,7 @@
           :attachment="localAttachment"
           label="Tú"
           :muted="true"
+          :speaking="isLocalSpeaking"
           class="max-w-xl flex-1"
         />
         <VideoTile
@@ -26,6 +27,7 @@
           :stream="entry.stream"
           :attachment="entry.attachment"
           :label="entry.label"
+          :speaking="entry.speaking"
           class="max-w-xl flex-1"
         />
         <RemoteAudioSink
@@ -92,7 +94,7 @@ import DeviceSettingsPanel from '../components/DeviceSettingsPanel.vue';
 import MediaControls from '../components/MediaControls.vue';
 import RemoteAudioSink from '../components/RemoteAudioSink.vue';
 import VideoTile from '../components/VideoTile.vue';
-import { createLocalTracks } from 'livekit-client';
+import { Track } from 'livekit-client';
 import { useSignaling } from '../composables/useSignaling.js';
 import { useLiveKitRoom, findPublication } from '../composables/useLiveKitRoom.js';
 import { useMediaDevices } from '../composables/useMediaDevices.js';
@@ -156,14 +158,22 @@ const remoteEntries = computed(() => {
   return livekit.remoteParticipants.value.map((p) => {
     const pub = findPublication(p, 'video');
     const audioPub = findPublication(p, 'audio');
+    const key = p.identity ?? p.sid;
     return {
-      key: p.identity ?? p.sid,
+      key,
       label: p.name || p.identity || 'Invitado',
       attachment: pub?.videoTrack ?? pub?.track ?? null,
       stream: null,
       audioAttachment: audioPub?.audioTrack ?? audioPub?.track ?? null,
+      speaking: livekit.activeSpeakerIds.value.has(key),
     };
   });
+});
+
+const isLocalSpeaking = computed(() => {
+  const localId = livekit.room.value?.localParticipant?.identity;
+  if (!localId) return false;
+  return livekit.activeSpeakerIds.value.has(localId);
 });
 
 const hasAnyVideo = computed(
@@ -268,16 +278,12 @@ async function publishLocalTracks(stream) {
   const [videoTrack] = stream.getVideoTracks();
   const [audioTrack] = stream.getAudioTracks();
   if (!videoTrack && !audioTrack) return;
-  const tracks = await createLocalTracks({
-    audio: audioTrack ? { deviceId: audioTrack.getSettings?.().deviceId } : false,
-    video: videoTrack
-      ? { deviceId: videoTrack.getSettings?.().deviceId }
-      : false,
-  });
   const published = [];
-  for (const t of tracks) {
+  for (const t of [videoTrack, audioTrack]) {
+    if (!t) continue;
+    const source = t.kind === 'video' ? Track.Source.Camera : Track.Source.Microphone;
     try {
-      const pub = await livekit.publishTrack(t);
+      const pub = await livekit.publishTrack(t, { source });
       if (pub) published.push(t);
     } catch (err) {
       errorMessage.value = err?.message ?? `No se pudo publicar ${t.kind}`;
