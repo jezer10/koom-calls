@@ -18,14 +18,17 @@ vi.mock('../composables/useDeviceList.js', () => ({
   useDeviceList: () => ({
     cameras: { value: [] },
     microphones: { value: [] },
+    speakers: { value: [] },
     selectedCameraId: { value: '' },
     selectedMicrophoneId: { value: '' },
+    selectedSpeakerId: { value: '' },
     error: { value: null },
     refresh: vi.fn().mockResolvedValue(undefined),
     startListening: vi.fn(),
     stopListening: vi.fn(),
     selectCamera: vi.fn(),
     selectMicrophone: vi.fn(),
+    selectSpeaker: vi.fn(),
   }),
   useDevicePreview: () => ({
     stream: { value: null },
@@ -129,5 +132,19 @@ describe('PreJoinView', () => {
     googleBtn.vm.$emit('error', 'access_denied');
     await flushPromises();
     expect(wrapper.find('[data-testid="auth-prompt-error"]').text()).toBe('access_denied');
+  });
+
+  it('shows listener mode warning when no local devices are available', async () => {
+    authMock.getMe.mockResolvedValue(null);
+    authMock.anonymousLogin.mockResolvedValue({
+      userId: 'anon-1',
+      displayName: 'Guest',
+      provider: 'anonymous',
+    });
+    const wrapper = await mountView();
+    await flushPromises();
+    expect(wrapper.find('[data-testid="pre-join-warning"]').text()).toContain(
+      'Podés entrar como oyente',
+    );
   });
 });

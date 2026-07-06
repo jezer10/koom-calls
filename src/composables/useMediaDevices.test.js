@@ -75,6 +75,35 @@ describe('useMediaDevices', () => {
     expect(media.error.value).toBe('NotAllowedError');
   });
 
+  it('start() retries without exact device ids when the selected device no longer exists', async () => {
+    const stream = new FakeMediaStream([new FakeTrack('audio')]);
+    const missing = new Error('Requested device not found');
+    missing.name = 'NotFoundError';
+    mockedGetUserMedia()
+      .mockRejectedValueOnce(missing)
+      .mockResolvedValueOnce(stream);
+    const media = useMediaDevices();
+    const result = await media.start({
+      audio: true,
+      video: false,
+      audioDeviceId: 'missing-mic',
+    });
+    expect(result).toBe(stream);
+    expect(mockedGetUserMedia()).toHaveBeenNthCalledWith(1, {
+      video: false,
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        deviceId: { exact: 'missing-mic' },
+      },
+    });
+    expect(mockedGetUserMedia()).toHaveBeenNthCalledWith(2, {
+      video: false,
+      audio: true,
+    });
+  });
+
   it('toggleCamera flips the video track enabled state', async () => {
     const videoTrack = new FakeTrack('video');
     const audioTrack = new FakeTrack('audio');

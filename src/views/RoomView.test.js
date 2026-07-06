@@ -57,6 +57,23 @@ const mocks = vi.hoisted(() => {
     toggleCamera: vi.fn().mockReturnValue(false),
     toggleMicrophone: vi.fn().mockReturnValue(false),
   };
+  const deviceList = {
+    cameras: { value: [{ deviceId: 'cam-1', kind: 'videoinput', label: 'Cam 1' }] },
+    microphones: { value: [{ deviceId: 'mic-1', kind: 'audioinput', label: 'Mic 1' }] },
+    speakers: { value: [{ deviceId: 'spk-1', kind: 'audiooutput', label: 'Speaker 1' }] },
+    selectedCameraId: { value: 'cam-1' },
+    selectedMicrophoneId: { value: 'mic-1' },
+    selectedSpeakerId: { value: 'spk-1' },
+    selectedSpeakerLabel: { value: 'Speaker 1' },
+    refresh: vi.fn().mockResolvedValue(undefined),
+    startListening: vi.fn(),
+    stopListening: vi.fn(),
+    supportsSpeakerSelection: vi.fn().mockReturnValue(true),
+    selectCamera: vi.fn(),
+    selectMicrophone: vi.fn(),
+    selectSpeaker: vi.fn(),
+    pickSpeaker: vi.fn().mockResolvedValue({ deviceId: 'spk-2', label: 'Speaker 2' }),
+  };
   const auth = {
     getMe: vi.fn().mockResolvedValue({ userId: 'u1', displayName: 'Alice', provider: 'google' }),
     getWsToken: vi.fn().mockResolvedValue({ token: 'ws.jwt', expiresAt: 0 }),
@@ -76,7 +93,7 @@ const mocks = vi.hoisted(() => {
     joinCall: vi.fn().mockResolvedValue({ id: 'c-1', roomId: 'ABC-DEF-GHI', status: 'active', participants: [] }),
     getCall: vi.fn(),
   };
-  return { signaling, livekit, media, auth, calls };
+  return { signaling, livekit, media, deviceList, auth, calls };
 });
 
 vi.mock('../composables/useSignaling.js', () => ({
@@ -100,6 +117,10 @@ vi.mock('../composables/useLiveKitRoom.js', () => ({
 
 vi.mock('../composables/useMediaDevices.js', () => ({
   useMediaDevices: () => mocks.media,
+}));
+
+vi.mock('../composables/useDeviceList.js', () => ({
+  useDeviceList: () => mocks.deviceList,
 }));
 
 vi.mock('../api/auth.js', () => ({
@@ -126,7 +147,10 @@ vi.mock('livekit-client', () => ({
     { kind: 'video', sid: 'LV-1', attach: vi.fn(), detach: vi.fn(), stop: vi.fn() },
     { kind: 'audio', sid: 'LA-1', attach: vi.fn(), detach: vi.fn(), stop: vi.fn() },
   ]),
-  Track: { Kind: { Video: 'video', Audio: 'audio' } },
+  Track: {
+    Kind: { Video: 'video', Audio: 'audio' },
+    Source: { Camera: 'camera', Microphone: 'microphone', ScreenShare: 'screen_share' },
+  },
   RoomEvent: {
     Connected: 'connected',
     Disconnected: 'disconnected',
@@ -181,6 +205,7 @@ describe('RoomView (LiveKit SFU)', () => {
     HTMLMediaElement.prototype.play = function play() {
       return Promise.resolve();
     };
+    HTMLMediaElement.prototype.setSinkId = vi.fn().mockResolvedValue(undefined);
     for (const m of [mocks.calls, mocks.auth, mocks.livekit, mocks.media, mocks.signaling]) {
       for (const v of Object.values(m)) {
         if (v && typeof v === 'object' && typeof v.mockClear === 'function') {
@@ -196,6 +221,13 @@ describe('RoomView (LiveKit SFU)', () => {
     mocks.livekit.state.value = 'idle';
     mocks.livekit.remoteParticipants.value = [];
     mocks.media.start.mockResolvedValue(fakeStream());
+    mocks.deviceList.cameras.value = [{ deviceId: 'cam-1', kind: 'videoinput', label: 'Cam 1' }];
+    mocks.deviceList.microphones.value = [{ deviceId: 'mic-1', kind: 'audioinput', label: 'Mic 1' }];
+    mocks.deviceList.speakers.value = [{ deviceId: 'spk-1', kind: 'audiooutput', label: 'Speaker 1' }];
+    mocks.deviceList.selectedCameraId.value = 'cam-1';
+    mocks.deviceList.selectedMicrophoneId.value = 'mic-1';
+    mocks.deviceList.selectedSpeakerId.value = 'spk-1';
+    mocks.deviceList.selectedSpeakerLabel.value = 'Speaker 1';
     mocks.signaling.joinRoom.mockResolvedValue({ socketIds: [], members: [] });
     mocks.signaling.selfSocketId.value = 'self-1';
     mocks.auth.getToken.mockReturnValue('jwt-1');
@@ -246,5 +278,22 @@ describe('RoomView (LiveKit SFU)', () => {
     mocks.livekit.connect.mockRejectedValueOnce(new Error('sfu-down'));
     const { wrapper } = await mountRoom();
     expect(wrapper.find('[data-testid="room-error"]').text()).toContain('sfu-down');
+  });
+
+  it('joins as listener when no camera or microphone is available', async () => {
+    mocks.deviceList.cameras.value = [];
+    mocks.deviceList.microphones.value = [];
+    mocks.deviceList.selectedCameraId.value = '';
+    mocks.deviceList.selectedMicrophoneId.value = '';
+    const { wrapper } = await mountRoom();
+    expect(mocks.media.start).not.toHaveBeenCalled();
+    expect(mocks.livekit.connect).toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="room-error"]').text()).toContain('Entraste como oyente');
+  });
+
+  it('uses the browser picker to choose the audio output when supported', async () => {
+    const { wrapper } = await mountRoom();
+    await wrapper.find('[data-testid="device-panel-speaker-pick"]').trigger('click');
+    expect(mocks.deviceList.pickSpeaker).toHaveBeenCalled();
   });
 });

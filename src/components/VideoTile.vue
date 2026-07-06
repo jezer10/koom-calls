@@ -1,7 +1,9 @@
 <template>
   <div
-    class="relative h-full w-full overflow-hidden rounded-3xl bg-black text-white"
+    class="relative h-full w-full overflow-hidden rounded-3xl bg-black text-white transition-shadow"
+    :class="speaking ? 'ring-4 ring-green-400' : 'ring-0 ring-transparent'"
     data-testid="video-tile"
+    :data-speaking="speaking"
   >
     <video
       ref="videoEl"
@@ -24,6 +26,7 @@ const props = defineProps({
   attachment: { type: Object, default: null },
   label: { type: String, default: '' },
   muted: { type: Boolean, default: false },
+  speaking: { type: Boolean, default: false },
 });
 
 const videoEl = ref(null);

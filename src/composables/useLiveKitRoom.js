@@ -35,6 +35,7 @@ import { APP_CONFIG } from '../config.js';
  *   remoteParticipants: import('vue').Ref<RemoteParticipant[]>,
  *   cameraEnabled: import('vue').Ref<boolean>,
  *   microphoneEnabled: import('vue').Ref<boolean>,
+ *   activeSpeakerIds: import('vue').Ref<Set<string>>,
  *   error: import('vue').Ref<string|null>,
  *   connect: (opts: { url?: string, token: string }) => Promise<void>,
  *   disconnect: () => Promise<void>,
@@ -53,6 +54,7 @@ export function useLiveKitRoom(options = {}) {
   const remoteParticipants = ref([]);
   const cameraEnabled = ref(true);
   const microphoneEnabled = ref(true);
+  const activeSpeakerIds = ref(new Set());
   const error = ref(null);
 
   const unsubscribers = [];
@@ -105,6 +107,7 @@ export function useLiveKitRoom(options = {}) {
     room.value = r;
     state.value = 'connecting';
     error.value = null;
+    activeSpeakerIds.value = new Set();
 
     on(RoomEvent.Connected, () => {
       state.value = 'connected';
@@ -135,6 +138,9 @@ export function useLiveKitRoom(options = {}) {
     });
     on(RoomEvent.MediaDevicesError, (err) => {
       error.value = err?.message ?? 'media devices error';
+    });
+    on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+      activeSpeakerIds.value = new Set((speakers ?? []).map((p) => p.identity ?? p.sid));
     });
 
     try {
@@ -210,6 +216,7 @@ export function useLiveKitRoom(options = {}) {
     room.value = null;
     state.value = 'disconnected';
     remoteParticipants.value = [];
+    activeSpeakerIds.value = new Set();
     clearListeners();
     if (r) {
       try {
@@ -233,6 +240,7 @@ export function useLiveKitRoom(options = {}) {
     remoteParticipants,
     cameraEnabled,
     microphoneEnabled,
+    activeSpeakerIds,
     error,
     connect,
     disconnect,
